@@ -391,44 +391,80 @@ class SyncWatchUI {
     const { dragHandle, panel } = this.el;
     if (!dragHandle) return;
 
-    const onMove = (clientY) => {
+    this._drag = { active: false, startX: 0, startY: 0, startTop: 0, startLeft: 0, docked: 'right' };
+
+    const onMove = (clientX, clientY) => {
       if (!this._drag.active) return;
-      const delta = clientY - this._drag.startY;
-      let newTop = this._drag.startTop + delta;
-      const maxTop = window.innerHeight - 200;
-      newTop = Math.max(0, Math.min(newTop, maxTop));
+      const deltaX = clientX - this._drag.startX;
+      const deltaY = clientY - this._drag.startY;
+      
+      let newLeft = this._drag.startLeft + deltaX;
+      let newTop = this._drag.startTop + deltaY;
+      
+      const rect = panel.getBoundingClientRect();
+      const maxX = window.innerWidth - rect.width;
+      const maxY = window.innerHeight - rect.height;
+      
+      newLeft = Math.max(0, Math.min(newLeft, maxX));
+      newTop = Math.max(0, Math.min(newTop, maxY));
+      
+      panel.style.left = newLeft + 'px';
       panel.style.top = newTop + 'px';
-      panel.style.bottom = 'auto';
+    };
+
+    const startDrag = (x, y) => {
+      if (!this.miniMode) return;
+      const rect = panel.getBoundingClientRect();
+      this._drag.active = true;
+      this._drag.startX = x;
+      this._drag.startY = y;
+      this._drag.startTop = rect.top;
+      this._drag.startLeft = rect.left;
+      
+      panel.classList.add('dragging');
+      panel.classList.remove('docked-left', 'docked-right');
+      
+      // Detach from right to float freely
+      panel.style.right = 'auto';
+      panel.style.left = rect.left + 'px';
     };
 
     dragHandle.addEventListener('mousedown', (e) => {
-      if (!this.miniMode) return;
       e.preventDefault();
-      const rect = panel.getBoundingClientRect();
-      this._drag.active   = true;
-      this._drag.startY   = e.clientY;
-      this._drag.startTop = rect.top;
-      panel.classList.add('dragging');
+      startDrag(e.clientX, e.clientY);
     });
 
     dragHandle.addEventListener('touchstart', (e) => {
-      if (!this.miniMode) return;
-      const touch = e.touches[0];
-      const rect = panel.getBoundingClientRect();
-      this._drag.active   = true;
-      this._drag.startY   = touch.clientY;
-      this._drag.startTop = rect.top;
+      startDrag(e.touches[0].clientX, e.touches[0].clientY);
     }, { passive: true });
 
-    document.addEventListener('mousemove', (e) => onMove(e.clientY));
+    document.addEventListener('mousemove', (e) => onMove(e.clientX, e.clientY));
     document.addEventListener('touchmove', (e) => {
-      if (this._drag.active) onMove(e.touches[0].clientY);
+      if (this._drag.active) onMove(e.touches[0].clientX, e.touches[0].clientY);
     }, { passive: true });
 
     const stopDrag = () => {
+      if (!this._drag.active) return;
       this._drag.active = false;
       panel.classList.remove('dragging');
+      
+      const rect = panel.getBoundingClientRect();
+      const centerX = rect.left + (rect.width / 2);
+      const screenMid = window.innerWidth / 2;
+      
+      if (centerX < screenMid) {
+        panel.style.right = 'auto';
+        panel.style.left = '0px';
+        panel.classList.add('docked-left');
+        this._drag.docked = 'left';
+      } else {
+        panel.style.left = 'auto';
+        panel.style.right = '0px';
+        panel.classList.add('docked-right');
+        this._drag.docked = 'right';
+      }
     };
+    
     document.addEventListener('mouseup', stopDrag);
     document.addEventListener('touchend', stopDrag);
   }
@@ -463,9 +499,14 @@ class SyncWatchUI {
     this.el.root.classList.add('mini');
     this.el.root.classList.add('open');
     this.el.launcher.classList.add('hidden');
-    // Reset panel position
+    
     this.el.panel.style.top = '40%';
     this.el.panel.style.bottom = 'auto';
+    this.el.panel.style.left = 'auto';
+    this.el.panel.style.right = '0px';
+    this.el.panel.classList.remove('docked-left', 'dragging');
+    this.el.panel.classList.add('docked-right');
+    this._drag.docked = 'right';
   }
 
   _exitMini() {
@@ -474,6 +515,9 @@ class SyncWatchUI {
     this.el.root.classList.add('open');
     this.el.panel.style.top = '';
     this.el.panel.style.bottom = '';
+    this.el.panel.style.left = '';
+    this.el.panel.style.right = '';
+    this.el.panel.classList.remove('docked-left', 'docked-right', 'dragging');
   }
 
   _updateToastPos(open) {

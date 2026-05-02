@@ -5,14 +5,10 @@
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>SyncWatch</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Unbounded:wght@400;700;900&family=DM+Sans:wght@300;400;500;600&family=JetBrains+Mono:wght@500;600&display=swap"
-      rel="stylesheet"
-    />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=DM+Mono:ital,wght@0,300;0,400;0,500;1,300&family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
     <style>
-      *,
-      *::before,
-      *::after {
+      *, *::before, *::after {
         box-sizing: border-box;
         margin: 0;
         padding: 0;
@@ -20,31 +16,36 @@
       }
 
       :root {
-        --base: #000;
-        --bg: #05050a;
-        --s1: #0c0c14;
-        --s2: #111120;
-        --s3: #171728;
-        --b1: rgba(255, 255, 255, 0.05);
-        --b2: rgba(255, 255, 255, 0.1);
-        --b3: rgba(255, 255, 255, 0.16);
-        --p: #818cf8;
-        --pd: #6366f1;
-        --pdim: rgba(129, 140, 248, 0.1);
-        --pglow: rgba(129, 140, 248, 0.25);
-        --g: #34d399;
-        --r: #f43f5e;
-        --gold: #fbbf24;
-        --t1: #f0f0ff;
-        --t2: #9090b8;
-        --t3: #44445a;
-        --font: "DM Sans", sans-serif;
-        --disp: "Unbounded", sans-serif;
-        --mono: "JetBrains Mono", monospace;
+        --bg:           #07080d;
+        --bg2:          #0c0e17;
+        --bg3:          #111420;
+        --bg4:          #161929;
+        --border:       rgba(255,255,255,0.055);
+        --border2:      rgba(255,255,255,0.10);
+        
+        --accent:       #4f6ef7;
+        --accent2:      #7c5af5;
+        --accent-glow:  rgba(79,110,247,0.18);
+        --accent-glow2: rgba(79,110,247,0.35);
+
+        --green:        #00e5a0;
+        --red:          #ff3d6b;
+        --gold:         #e8b84b;
+
+        --t1:           #f0f0fa;
+        --t2:           #7e82a8;
+        --t3:           #3a3d58;
+
+        --font:         'Outfit', sans-serif;
+        --mono:         'DM Mono', monospace;
+
+        --r-sm:         8px;
+        --r-md:         12px;
+        --r-pill:       100px;
       }
 
       body {
-        width: 290px;
+        width: 320px;
         background: var(--bg);
         color: var(--t1);
         font-family: var(--font);
@@ -52,358 +53,161 @@
         position: relative;
       }
 
-      /* Gradient mesh */
+      /* Noise grain overlay */
       body::before {
-        content: "";
-        position: absolute;
-        inset: 0;
-        background:
-          radial-gradient(
-            ellipse 80% 50% at 50% -20%,
-            rgba(99, 102, 241, 0.12) 0%,
-            transparent 70%
-          ),
-          radial-gradient(
-            ellipse 50% 40% at 100% 80%,
-            rgba(168, 85, 247, 0.07) 0%,
-            transparent 60%
-          );
-        pointer-events: none;
+        content: '';
+        position: absolute; inset: 0; pointer-events: none; z-index: 0;
+        opacity: 0.025;
+        background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
       }
 
-      /* Top chromatic line */
+      /* Top accent line */
       body::after {
-        content: "";
-        position: absolute;
-        top: 0;
-        left: 0;
-        right: 0;
-        height: 1px;
-        background: linear-gradient(
-          90deg,
-          transparent 0%,
-          rgba(129, 140, 248, 0.7) 30%,
-          rgba(251, 113, 133, 0.5) 60%,
-          transparent 100%
-        );
+        content: '';
+        position: absolute; top: 0; left: 0; right: 0; height: 1px;
+        background: linear-gradient(90deg, transparent 0%, var(--accent) 35%, var(--accent2) 65%, transparent 100%);
+        opacity: 0.8; z-index: 1;
       }
 
       .wrap {
-        padding: 20px 18px 18px;
+        padding: 24px 20px 20px;
         display: flex;
         flex-direction: column;
-        gap: 14px;
+        gap: 16px;
         position: relative;
         z-index: 1;
+        background: linear-gradient(180deg, rgba(79,110,247,0.03) 0%, transparent 100%);
       }
 
-      /* Logo */
-      .logo-area {
-        display: flex;
-        align-items: center;
-        gap: 12px;
-      }
-      .logo-mark {
-        width: 46px;
-        height: 46px;
-        background: linear-gradient(135deg, var(--pd), #7c3aed);
-        border-radius: 14px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 22px;
-        box-shadow:
-          0 4px 20px rgba(99, 102, 241, 0.4),
-          inset 0 1px 0 rgba(255, 255, 255, 0.2);
-        flex-shrink: 0;
-        position: relative;
-        overflow: hidden;
-      }
-      .logo-mark::after {
-        content: "";
-        position: absolute;
-        top: 0;
-        left: -100%;
-        width: 60%;
-        height: 100%;
-        background: linear-gradient(
-          90deg,
-          transparent,
-          rgba(255, 255, 255, 0.2),
-          transparent
-        );
-        transform: skewX(-20deg);
-        animation: shimmer 3s ease-in-out infinite;
-      }
-      @keyframes shimmer {
-        0% {
-          left: -100%;
-        }
-        60% {
-          left: 150%;
-        }
-        100% {
-          left: 150%;
-        }
-      }
-
-      .logo-text {
-        display: flex;
-        flex-direction: column;
-      }
-      .logo-name {
-        font-family: var(--disp);
-        font-size: 15px;
-        font-weight: 700;
-        color: var(--t1);
-        letter-spacing: -0.3px;
-      }
-      .logo-sub {
-        font-size: 10px;
-        color: var(--t3);
-        margin-top: 2px;
-        font-weight: 400;
-      }
-
-      /* Status */
-      .status-bar {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        background: var(--s1);
-        border: 1px solid var(--b2);
-        border-radius: 10px;
-        padding: 10px 13px;
-        font-size: 12px;
-        color: var(--t2);
-        font-weight: 500;
-      }
-      .dot {
-        width: 7px;
-        height: 7px;
-        border-radius: 50%;
-        background: var(--r);
-        box-shadow: 0 0 7px var(--r);
-        transition: all 0.5s;
-        flex-shrink: 0;
-      }
-      .dot.on {
-        background: var(--g);
-        box-shadow:
-          0 0 8px var(--g),
-          0 0 14px rgba(52, 211, 153, 0.3);
-        animation: pulse 2s ease-in-out infinite;
-      }
-      @keyframes pulse {
-        0%,
-        100% {
-          box-shadow: 0 0 8px var(--g);
-        }
-        50% {
-          box-shadow:
-            0 0 14px var(--g),
-            0 0 24px rgba(52, 211, 153, 0.4);
-        }
-      }
-      #status-text {
-        flex: 1;
-      }
-      .status-bar-right {
-        margin-left: auto;
-      }
-
-      /* Room info */
-      .room-info {
-        display: none;
-        background: var(--s1);
-        border: 1px solid rgba(129, 140, 248, 0.2);
-        border-radius: 10px;
-        padding: 12px 14px;
-        position: relative;
-        overflow: hidden;
-      }
-      .room-info::before {
-        content: "";
-        position: absolute;
-        top: 0;
-        left: 0;
-        right: 0;
-        height: 1px;
-        background: linear-gradient(90deg, transparent, var(--pd), transparent);
-        opacity: 0.4;
-      }
-      .room-info.show {
-        display: block;
-      }
-      .room-info-label {
-        font-family: var(--disp);
-        font-size: 8px;
-        font-weight: 700;
-        letter-spacing: 1.2px;
-        text-transform: uppercase;
-        color: var(--t3);
-        margin-bottom: 6px;
-      }
-      .room-id {
-        font-family: var(--mono);
-        font-size: 16px;
-        font-weight: 600;
-        color: var(--p);
-        letter-spacing: 3px;
-        text-transform: uppercase;
-      }
-      .room-members {
-        font-size: 11px;
-        color: var(--t3);
-        margin-top: 4px;
-      }
-
-      /* Buttons */
-      .btn {
-        width: 100%;
-        padding: 12px;
-        border-radius: 10px;
-        border: none;
-        font-family: var(--disp);
-        font-size: 10px;
-        font-weight: 700;
-        letter-spacing: 0.5px;
-        text-transform: uppercase;
-        cursor: pointer;
-        transition: all 0.2s cubic-bezier(0.22, 1, 0.36, 1);
-        position: relative;
-        overflow: hidden;
-      }
-      .btn::after {
-        content: "";
-        position: absolute;
-        top: 0;
-        left: -100%;
-        width: 50%;
-        height: 100%;
-        background: linear-gradient(
-          90deg,
-          transparent,
-          rgba(255, 255, 255, 0.08),
-          transparent
-        );
-        transform: skewX(-20deg);
-        transition: left 0.4s;
-      }
-      .btn:hover::after {
-        left: 150%;
-      }
-      .btn:active {
-        transform: scale(0.97);
-      }
-
-      .btn-primary {
-        background: linear-gradient(135deg, var(--pd), #7c3aed);
-        color: #fff;
-        box-shadow: 0 4px 18px rgba(99, 102, 241, 0.35);
-        border: 1px solid rgba(129, 140, 248, 0.3);
-      }
-      .btn-primary:hover {
-        box-shadow: 0 6px 26px rgba(99, 102, 241, 0.5);
-        filter: brightness(1.08);
-      }
-
-      /* Footer */
-      .footer-row {
+      /* Header */
+      .header {
         display: flex;
         align-items: center;
         justify-content: space-between;
       }
-      .shortcut-hint {
-        font-size: 10px;
-        color: var(--t3);
-        display: flex;
-        align-items: center;
-        gap: 4px;
+      .logo-area {
+        display: flex; align-items: center; gap: 10px;
+        font-size: 16px; font-weight: 800; color: var(--t1); letter-spacing: -0.4px;
       }
-      kbd {
-        background: var(--s2);
-        border: 1px solid var(--b2);
-        border-radius: 4px;
-        padding: 1px 5px;
-        font-family: var(--mono);
-        font-size: 9px;
-        color: var(--t2);
+      .logo-mark {
+        width: 32px; height: 32px;
+        background: linear-gradient(135deg, var(--accent), var(--accent2));
+        border-radius: var(--r-sm); display: flex; align-items: center; justify-content: center;
+        font-size: 14px; box-shadow: 0 0 16px rgba(79,110,247,0.4);
       }
-      .links {
-        display: flex;
-        gap: 14px;
+      
+      .conn-badge {
+        display: flex; align-items: center; gap: 6px;
+        font-size: 11px; font-weight: 600; color: var(--t2);
+        padding: 4px 8px; background: var(--bg2); border: 1px solid var(--border);
+        border-radius: var(--r-pill);
       }
-      .links a {
-        font-size: 10px;
-        color: var(--t3);
-        text-decoration: none;
-        transition: color 0.2s;
-        font-weight: 500;
+      .dot {
+        width: 6px; height: 6px; border-radius: 50%;
+        background: var(--red); box-shadow: 0 0 6px var(--red);
+        transition: all 0.4s ease;
       }
-      .links a:hover {
-        color: var(--t2);
+      .dot.on {
+        background: var(--green); box-shadow: 0 0 10px var(--green);
       }
 
-      /* Health badge */
-      .health-badge {
-        display: inline-flex;
-        align-items: center;
-        gap: 5px;
-        padding: 3px 8px;
-        background: rgba(52, 211, 153, 0.08);
-        border: 1px solid rgba(52, 211, 153, 0.2);
-        border-radius: 100px;
-        font-family: var(--disp);
-        font-size: 8px;
-        font-weight: 700;
-        letter-spacing: 0.8px;
-        text-transform: uppercase;
-        color: var(--g);
+      /* Room Info */
+      .room-info {
+        display: none;
+        flex-direction: column;
+        gap: 8px;
+        background: var(--bg2); border: 1px solid var(--border2);
+        border-radius: var(--r-md); padding: 14px;
+        position: relative; overflow: hidden;
       }
-      .health-dot {
-        width: 5px;
-        height: 5px;
-        border-radius: 50%;
-        background: var(--g);
-        animation: pulse 2s ease-in-out infinite;
+      .room-info::before {
+        content: ''; position: absolute; top: 0; left: 0; right: 0; height: 1px;
+        background: linear-gradient(90deg, transparent, var(--accent), transparent); opacity: 0.4;
       }
+      .room-info.show { display: flex; }
+      
+      .room-lbl { font-size: 9px; font-weight: 700; letter-spacing: 1.2px; text-transform: uppercase; color: var(--t3); }
+      .room-id-row { display: flex; align-items: center; justify-content: space-between; }
+      .room-id {
+        font-family: var(--mono); font-size: 16px; font-weight: 500; color: var(--accent);
+        letter-spacing: 3px; text-transform: uppercase;
+      }
+      .members-pill {
+        background: var(--bg3); border: 1px solid var(--border);
+        border-radius: var(--r-pill); padding: 3px 8px;
+        font-size: 10px; font-weight: 600; color: var(--t2);
+      }
+
+      /* Buttons */
+      .btn {
+        width: 100%; padding: 12px; border: none; border-radius: var(--r-sm);
+        font-family: var(--font); font-size: 13px; font-weight: 600; cursor: pointer;
+        transition: all 0.16s ease; display: flex; align-items: center;
+        justify-content: center; gap: 6px; letter-spacing: 0.2px;
+      }
+      .btn:active { transform: scale(0.97); }
+
+      .btn-primary {
+        background: linear-gradient(135deg, var(--accent), var(--accent2));
+        color: #fff; box-shadow: 0 4px 16px rgba(79,110,247,0.35);
+      }
+      .btn-primary:hover { box-shadow: 0 6px 22px rgba(79,110,247,0.5); filter: brightness(1.08); }
+
+      .btn-share {
+        background: rgba(0,229,160,0.08); color: var(--green);
+        border: 1px solid rgba(0,229,160,0.2);
+        display: none;
+      }
+      .btn-share.show { display: flex; }
+      .btn-share:hover { background: rgba(0,229,160,0.14); box-shadow: 0 4px 14px rgba(0,229,160,0.18); }
+
+      /* Footer */
+      .footer {
+        display: flex; align-items: center; justify-content: space-between;
+        margin-top: 4px; padding-top: 14px; border-top: 1px solid var(--border);
+      }
+      .hint { font-size: 10px; color: var(--t3); display: flex; align-items: center; gap: 4px; }
+      kbd {
+        background: var(--bg3); border: 1px solid var(--border);
+        border-radius: 4px; padding: 2px 5px; font-family: var(--mono);
+        font-size: 9px; color: var(--t2); box-shadow: 0 2px 0 var(--bg);
+      }
+      .links a {
+        font-size: 10px; font-weight: 600; color: var(--t3); text-decoration: none; transition: color 0.2s;
+      }
+      .links a:hover { color: var(--t2); }
     </style>
   </head>
   <body>
     <div class="wrap">
-      <div class="logo-area">
-        <div class="logo-mark">🎬</div>
-        <div class="logo-text">
-          <div class="logo-name">SyncWatch</div>
-          <div class="logo-sub">Watch together, in perfect sync</div>
+      <div class="header">
+        <div class="logo-area">
+          <div class="logo-mark">🎬</div>
+          SyncWatch
         </div>
-      </div>
-
-      <div class="status-bar">
-        <div class="dot" id="dot"></div>
-        <span id="status-text">Connecting…</span>
-        <div class="status-bar-right">
-          <div class="health-badge" id="server-badge" style="display: none">
-            <div class="health-dot"></div>
-            Server Live
-          </div>
+        <div class="conn-badge">
+          <div class="dot" id="dot"></div>
+          <span id="status-text">Connecting…</span>
         </div>
       </div>
 
       <div class="room-info" id="room-info">
-        <div class="room-info-label">Active Room</div>
-        <div class="room-id" id="room-id"></div>
-        <div class="room-members" id="room-members"></div>
+        <div class="room-lbl">Active Room</div>
+        <div class="room-id-row">
+          <div class="room-id" id="room-id"></div>
+          <div class="members-pill" id="room-members">In room</div>
+        </div>
       </div>
 
-      <button class="btn btn-primary" id="open-btn">Open Cinema Panel</button>
+      <div style="display: flex; flex-direction: column; gap: 8px;">
+        <button class="btn btn-primary" id="open-btn">🎬 Open Cinema Panel</button>
+        <button class="btn btn-share" id="share-btn">🔗 Copy Invite Link</button>
+      </div>
 
-      <div class="footer-row">
-        <div class="shortcut-hint">Toggle <kbd>Alt</kbd>+<kbd>W</kbd></div>
+      <div class="footer">
+        <div class="hint">Toggle <kbd>Alt</kbd>+<kbd>W</kbd></div>
         <div class="links">
           <a href="#" id="refresh-btn">Reconnect</a>
-          <a href="https://github.com" target="_blank">GitHub</a>
         </div>
       </div>
     </div>
