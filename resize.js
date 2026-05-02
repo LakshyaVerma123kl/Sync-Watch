@@ -1,23 +1,40 @@
+/**
+ * resize.js — generate extension icons from a source image.
+ * Usage: node resize.js [source-image.png]
+ *        Defaults to extension/icons/source.png if no arg given.
+ */
 const Jimp = require('jimp');
-const fs = require('fs');
+const fs   = require('fs');
 const path = require('path');
 
-const sourcePath = 'C:\\Users\\Lakshya\\.gemini\\antigravity\\brain\\3ec71937-7e48-4653-8e2f-4d3774f25946\\syncwatch_logo_1777706511738.png';
-const iconsDir = path.join(__dirname, 'extension', 'icons');
+const sourcePath = process.argv[2] ?? path.join(__dirname, 'extension', 'icons', 'source.png');
+const iconsDir   = path.join(__dirname, 'extension', 'icons');
 
-if (!fs.existsSync(iconsDir)) {
-  fs.mkdirSync(iconsDir);
+if (!fs.existsSync(sourcePath)) {
+  console.error(`\x1b[31m❌ Source image not found: ${sourcePath}\x1b[0m`);
+  console.error('   Usage: node resize.js <path-to-source.png>');
+  process.exit(1);
 }
+
+if (!fs.existsSync(iconsDir)) fs.mkdirSync(iconsDir, { recursive: true });
 
 async function resizeIcons() {
   try {
     const image = await Jimp.read(sourcePath);
-    await image.clone().resize(16, 16).writeAsync(path.join(iconsDir, 'icon16.png'));
-    await image.clone().resize(48, 48).writeAsync(path.join(iconsDir, 'icon48.png'));
-    await image.clone().resize(128, 128).writeAsync(path.join(iconsDir, 'icon128.png'));
-    console.log('Icons generated successfully.');
+
+    const sizes = [16, 32, 48, 128];
+    for (const size of sizes) {
+      const outPath = path.join(iconsDir, `icon${size}.png`);
+      await image.clone().resize(size, size).writeAsync(outPath);
+      console.log(`  ✓ ${size}×${size} → ${outPath}`);
+    }
+
+    // Also write a generic icon.png (128px) for the manifest fallback
+    await image.clone().resize(128, 128).writeAsync(path.join(iconsDir, 'icon.png'));
+    console.log('\n\x1b[32m✅ Icons generated successfully.\x1b[0m');
   } catch (error) {
-    console.error('Error generating icons:', error);
+    console.error('\x1b[31m❌ Error generating icons:\x1b[0m', error.message);
+    process.exit(1);
   }
 }
 

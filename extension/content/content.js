@@ -1,5 +1,7 @@
 /**
- * SyncWatch Content Script — orchestrates adapter + UI + server messages.
+ * SyncWatch Content Script v2.1
+ * Orchestrates adapter + UI + server messages.
+ * Bug fixes: seek no longer forces pause; seek+play handled correctly.
  */
 
 let activeAdapter = null;
@@ -43,57 +45,96 @@ function sendEvent(event, time) {
   });
 }
 
+function sendReaction(emoji) {
+  if (!currentRoom) return;
+  chrome.runtime.sendMessage({
+    type: 'to-server',
+    data: { type: 'reaction', emoji },
+  });
+}
+
+function sendSyncNow() {
+  if (!currentRoom) return;
+  // Also update the server with current time before broadcasting
+  if (activeAdapter) {
+    const time = activeAdapter.getCurrentTime();
+    chrome.runtime.sendMessage({
+      type: 'to-server',
+      data: { type: 'video-event', event: activeAdapter.isPaused() ? 'pause' : 'play', time },
+    });
+  }
+  chrome.runtime.sendMessage({
+    type: 'to-server',
+    data: { type: 'sync-now' },
+  });
+}
+
 // ── Message Listener ──────────────────────────────────────────────────────────
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-  // ── Connection status ──
   if (message.type === 'connection-status') {
     if (window.SyncUI) window.SyncUI.setConnected(message.connected);
     return;
   }
 
-  // ── Open sidebar from popup ──
   if (message.type === 'open-sidebar') {
     if (window.SyncUI) window.SyncUI.open();
     sendResponse({ success: true });
     return true;
   }
 
-  // ── Server messages ──
   if (message.type !== 'from-server') return;
   const data = message.data;
 
-  // Dispatch to UI
   if (window.SyncUI) window.SyncUI.handleServerMessage(data);
 
-  // ── Video sync ──
+  // ── Video sync ──────────────────────────────────────────────────────────────
   if (data.type === 'video-sync' && activeAdapter && !isDRM) {
-    const { event, time } = data;
+    const { event, time, playing } = data;
 
     if (event === 'play' || event === 'buffering-recovered') {
       if (window.SyncUI) window.SyncUI.setBuffering(false);
       if (time !== undefined) activeAdapter.seek(time);
       activeAdapter.play();
+
     } else if (event === 'pause' || event === 'waiting') {
       if (event === 'waiting' && window.SyncUI) window.SyncUI.setBuffering(true);
       if (time !== undefined) activeAdapter.seek(time);
       activeAdapter.pause();
+
     } else if (event === 'seek') {
+      // ── FIX: after seeking, respect the host's current playing state ────────
       if (time !== undefined) activeAdapter.seek(time);
+      if (playing === true) {
+        activeAdapter.play();
+      } else if (playing === false) {
+        activeAdapter.pause();
+      }
+      // If playing is undefined (old server), don't change play state
+
     } else if (event === 'drift') {
-      // Soft correction: only nudge if we're more than 2 s off
       if (time !== undefined && Math.abs(activeAdapter.getCurrentTime() - time) > 2) {
         activeAdapter.seek(time);
       }
     }
   }
 
-  // ── Initial sync on join ──
+  // ── sync-now: hard snap to host position ───────────────────────────────────
+  if (data.type === 'sync-now' && activeAdapter && !isDRM) {
+    if (data.time !== undefined) activeAdapter.seek(data.time);
+    if (data.playing) {
+      activeAdapter.play();
+    } else {
+      activeAdapter.pause();
+    }
+  }
+
+  // ── Initial sync on join ────────────────────────────────────────────────────
   if (data.type === 'sync-state' && activeAdapter && !isDRM) {
     myId   = data.yourId;
     hostId = data.hostId;
     _updateLock();
 
-    if (data.state.time) activeAdapter.seek(data.state.time);
+    if (data.state.time > 0) activeAdapter.seek(data.state.time);
     if (data.state.playing) {
       activeAdapter.play();
     } else {
@@ -101,7 +142,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     }
   }
 
-  // ── Host changes ──
+  // ── Host changes ────────────────────────────────────────────────────────────
   if (data.type === 'host-changed') {
     hostId = data.hostId;
     _updateLock();
@@ -110,7 +151,6 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
 function _updateLock() {
   if (!activeAdapter) return;
-  // Lock controls if there's a host AND it's not us
   activeAdapter.lockControls(!!(hostId && hostId !== myId));
 }
 
@@ -124,7 +164,10 @@ window.SyncOrchestrator = {
       chrome.runtime.sendMessage({ type: 'to-server', data: { type: 'leave-room' } });
     }
   },
-  isDRM: () => isDRM,
+  isDRM:       () => isDRM,
+  sendReaction: (emoji) => sendReaction(emoji),
+  sendSyncNow:  () => sendSyncNow(),
+  getCurrentTime: () => activeAdapter?.getCurrentTime() ?? 0,
 };
 
 // ── Boot ──────────────────────────────────────────────────────────────────────
