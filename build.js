@@ -1,49 +1,55 @@
-const fs = require('fs');
-const path = require('path');
-const archiver = require('archiver');
+#!/usr/bin/env node
+/**
+ * SyncWatch build script
+ * Usage: node build.js wss://your-render-url.onrender.com
+ */
 
-// Get the production URL from command line args
+const fs      = require('fs');
+const path    = require('path');
+
 const productionUrl = process.argv[2];
 
 if (!productionUrl || !productionUrl.startsWith('wss://')) {
-  console.error('\x1b[31m%s\x1b[0m', '❌ Build Failed: You must provide your Render WebSocket URL.');
-  console.error('Usage: node build.js wss://your-app-name.onrender.com\n');
+  console.error('\x1b[31m❌ Build Failed: Provide a valid wss:// URL.\x1b[0m');
+  console.error('   Usage: node build.js wss://your-app.onrender.com\n');
   process.exit(1);
 }
 
-const EXTENSION_DIR = path.join(__dirname, 'extension');
-const TEMP_DIR = path.join(__dirname, 'temp_build');
-const OUTPUT_ZIP = path.join(__dirname, 'syncwatch-release.zip');
-
-console.log(`\x1b[34m[1/3] Preparing build directory...\x1b[0m`);
-
-// Create a temporary copy to modify the URL without destroying the local dev version
-if (fs.existsSync(TEMP_DIR)) {
-  fs.rmSync(TEMP_DIR, { recursive: true, force: true });
+let archiver;
+try {
+  archiver = require('archiver');
+} catch {
+  console.error('\x1b[31m❌ Missing dependency: run `npm install` first.\x1b[0m');
+  process.exit(1);
 }
-fs.cpSync(EXTENSION_DIR, TEMP_DIR, { recursive: true });
 
-console.log(`\x1b[34m[2/3] Injecting Production URL (${productionUrl})...\x1b[0m`);
-const bgScriptPath = path.join(TEMP_DIR, 'background', 'background.js');
-let bgScript = fs.readFileSync(bgScriptPath, 'utf8');
+const SRC_DIR   = path.join(__dirname, 'extension');
+const TEMP_DIR  = path.join(__dirname, 'temp_build');
+const OUT_ZIP   = path.join(__dirname, 'syncwatch-release.zip');
 
-// Replace localhost with the production URL
-bgScript = bgScript.replace(
-  /const SERVER_URL = 'ws:\/\/localhost:3000';/g, 
-  `const SERVER_URL = '${productionUrl}';`
+console.log('\x1b[34m[1/3] Preparing build directory…\x1b[0m');
+if (fs.existsSync(TEMP_DIR)) fs.rmSync(TEMP_DIR, { recursive: true, force: true });
+fs.cpSync(SRC_DIR, TEMP_DIR, { recursive: true });
+
+console.log(`\x1b[34m[2/3] Injecting production URL: ${productionUrl}\x1b[0m`);
+const bgPath = path.join(TEMP_DIR, 'background', 'background.js');
+let bg = fs.readFileSync(bgPath, 'utf8');
+
+// Replace any ws:// or wss:// localhost reference
+bg = bg.replace(
+  /const SERVER_URL\s*=\s*['"`]wss?:\/\/localhost[^'"`]*['"`]/,
+  `const SERVER_URL = '${productionUrl}'`
 );
-fs.writeFileSync(bgScriptPath, bgScript);
+fs.writeFileSync(bgPath, bg);
 
-console.log(`\x1b[34m[3/3] Zipping package for Chrome Web Store...\x1b[0m`);
-const output = fs.createWriteStream(OUTPUT_ZIP);
+console.log('\x1b[34m[3/3] Zipping for Chrome Web Store…\x1b[0m');
+const output  = fs.createWriteStream(OUT_ZIP);
 const archive = archiver('zip', { zlib: { level: 9 } });
 
 output.on('close', () => {
-  console.log(`\n\x1b[32m✅ Build Complete!\x1b[0m`);
-  console.log(`\x1b[32mCreated: ${OUTPUT_ZIP} (${(archive.pointer() / 1024).toFixed(2)} KB)\x1b[0m`);
-  console.log(`Ready to upload to the Chrome Web Store.`);
-  
-  // Clean up
+  const kb = (archive.pointer() / 1024).toFixed(1);
+  console.log(`\n\x1b[32m✅ Build complete! ${OUT_ZIP} (${kb} KB)\x1b[0m`);
+  console.log('\x1b[32m   Upload syncwatch-release.zip to the Chrome Web Store.\x1b[0m\n');
   fs.rmSync(TEMP_DIR, { recursive: true, force: true });
 });
 

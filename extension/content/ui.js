@@ -1,370 +1,579 @@
+/**
+ * SyncWatch UI v2 — State machine-driven sidebar UI.
+ * Fixes: participant state drift, typing indicator leaks,
+ *        host badge not hiding, tab display bugs, copy-to-clipboard.
+ */
 class SyncWatchUI {
   constructor() {
-    this.container = null;
-    this.toastContainer = null;
+    // ── State ──
     this.state = {
-      connected: false,
-      roomId: null,
-      hostId: null,
-      myId: null,
-      identity: null,
-      participants: []
+      connected:    false,
+      roomId:       null,
+      hostId:       null,
+      myId:         null,
+      participants: [],  // [{ id, identity, isHost }]
+      view:         'join', // 'join' | 'room'
     };
-    
+
+    this.activeTab     = 'chat';
     this.typingTimeout = null;
-    this.activeTypers = new Set();
-    
-    this.init();
+    this.activeTypers  = new Map(); // name → timeout id
+
+    // ── DOM refs ──
+    this.el = {};
+
+    this._build();
+    this._bindEvents();
+    this._syncStatus();
   }
 
-  init() {
-    if (document.getElementById('syncwatch-overlay')) return;
+  // ══════════════════════════════════════════════════════════════════════════
+  // BUILD
+  // ══════════════════════════════════════════════════════════════════════════
+  _build() {
+    // Guard: already injected
+    if (document.getElementById('syncwatch-overlay')) {
+      // re-acquire refs
+      this.el.overlay = document.getElementById('syncwatch-overlay');
+      return;
+    }
 
-    this.container = document.createElement('div');
-    this.container.id = 'syncwatch-overlay';
-    this.container.classList.add('minimized'); // Start hidden
-    
-    this.toastContainer = document.createElement('div');
-    this.toastContainer.id = 'sw-toast-container';
-    
-    this.openBtn = document.createElement('div');
-    this.openBtn.id = 'sw-open-btn';
-    this.openBtn.className = 'sw-video-overlay-btn';
-    this.openBtn.innerHTML = '<span class="icon">🍿</span> SyncWatch';
-    
-    this.render();
-    document.body.appendChild(this.container);
-    document.body.appendChild(this.toastContainer);
-    document.body.appendChild(this.openBtn);
-    
-    this.attachEvents();
-    this.checkStatus();
-  }
+    // ── Sidebar ──
+    const overlay = document.createElement('div');
+    overlay.id = 'syncwatch-overlay';
+    overlay.innerHTML = `
+      <div id="sw-tab-handle">SYNC</div>
 
-  render() {
-    this.container.innerHTML = `
-      <div class="sw-toggle-btn" id="sw-toggle">▶</div>
-      <div class="syncwatch-header">
-        <div class="syncwatch-title-row">
-          <h3 class="syncwatch-title">
-            <div class="syncwatch-status-dot" id="sw-status"></div>
-            SyncWatch <span class="host-badge" id="sw-host-badge">HOST</span>
-          </h3>
-        </div>
-      </div>
-      
-      <div class="sw-tabs" id="sw-tabs" style="display: none;">
-        <div class="sw-tab active" data-tab="chat">Chat</div>
-        <div class="sw-tab" data-tab="participants">Participants</div>
-      </div>
-
-      <div class="syncwatch-content" id="sw-join-view">
-        <div class="syncwatch-input-group">
-          <label>Room ID</label>
-          <input type="text" id="sw-room-input" class="syncwatch-input" placeholder="e.g. x8k9m" />
-        </div>
-        <button class="syncwatch-btn" id="sw-join-btn">Join Room</button>
-        <button class="syncwatch-btn secondary" id="sw-create-btn">Create New Room</button>
-      </div>
-
-      <div class="sw-tab-content active" id="tab-chat" style="display: none;">
-        <div class="syncwatch-content" style="padding-bottom: 0; border-bottom: 1px solid rgba(255,255,255,0.08);">
-          <div class="syncwatch-input-group" style="margin-bottom: 10px;">
-            <label>Current Room</label>
-            <input type="text" id="sw-room-display" class="syncwatch-input" readonly />
+      <!-- Header -->
+      <div class="sw-header">
+        <div class="sw-header-top">
+          <div class="sw-logo">
+            <span class="sw-logo-icon">🎬</span>SyncWatch
+            <span class="sw-host-chip" id="sw-host-chip">HOST</span>
           </div>
-          <button class="syncwatch-btn secondary" id="sw-claim-host-btn" style="display: none;">Claim Host</button>
-          <button class="syncwatch-btn warning" id="sw-leave-btn">Leave Room</button>
-        </div>
-        <div class="syncwatch-chat-messages" id="sw-chat-messages"></div>
-        <div class="sw-typing-indicator" id="sw-typing-indicator"></div>
-        <div class="syncwatch-chat-input-area">
-          <input type="text" id="sw-chat-input" class="syncwatch-chat-input" placeholder="Type a message..." />
+          <div class="sw-status-badge">
+            <div class="sw-status-dot" id="sw-status-dot"></div>
+            <span id="sw-status-text">Offline</span>
+          </div>
         </div>
       </div>
 
-      <div class="sw-tab-content" id="tab-participants">
+      <!-- DRM notice -->
+      <div class="sw-drm-notice" id="sw-drm-notice">
+        ⚠️ DRM content detected. Manual sync mode — press play at the same time.
+      </div>
+
+      <!-- Tab bar (hidden when in join view) -->
+      <div class="sw-tabs" id="sw-tabs" style="display:none">
+        <div class="sw-tab active" data-tab="chat">💬 Chat</div>
+        <div class="sw-tab" data-tab="participants">👥 People</div>
+        <div class="sw-tab" data-tab="controls">⚙️ Room</div>
+      </div>
+
+      <!-- ── JOIN VIEW ── -->
+      <div class="sw-pane active sw-join-view" id="sw-join-view">
+        <div>
+          <div class="sw-field-label">Room ID</div>
+          <input id="sw-room-input" class="sw-input" type="text"
+                 placeholder="Enter room code…" spellcheck="false" autocomplete="off" />
+        </div>
+        <div class="sw-room-actions">
+          <button class="sw-btn sw-btn-primary" id="sw-join-btn">Join</button>
+          <button class="sw-btn sw-btn-secondary" id="sw-create-btn">New Room</button>
+        </div>
+        <div style="text-align:center;font-size:11px;color:var(--sw-text3);margin-top:auto;padding-top:20px">
+          Create a room and share the code with friends.<br>Everyone needs the same video open.
+        </div>
+      </div>
+
+      <!-- ── CHAT PANE ── -->
+      <div class="sw-pane" id="sw-pane-chat">
+        <div class="sw-chat-messages" id="sw-chat-messages"></div>
+        <div class="sw-typing" id="sw-typing"></div>
+        <div class="sw-chat-footer">
+          <input id="sw-chat-input" class="sw-chat-input"
+                 placeholder="Send a message… (Enter)" autocomplete="off" />
+        </div>
+      </div>
+
+      <!-- ── PARTICIPANTS PANE ── -->
+      <div class="sw-pane" id="sw-pane-participants">
         <div class="sw-participants-list" id="sw-participants-list"></div>
       </div>
+
+      <!-- ── CONTROLS PANE ── -->
+      <div class="sw-pane sw-join-view" id="sw-pane-controls">
+        <div>
+          <div class="sw-field-label">Room ID (click to copy)</div>
+          <div class="sw-room-id-row">
+            <input id="sw-room-display" class="sw-input" type="text" readonly />
+            <button class="sw-copy-btn" id="sw-copy-btn" title="Copy room ID">📋</button>
+          </div>
+        </div>
+
+        <button class="sw-btn sw-btn-ghost" id="sw-claim-btn" style="display:none">
+          👑 Claim Host
+        </button>
+        <button class="sw-btn sw-btn-ghost" id="sw-release-btn" style="display:none">
+          Release Host
+        </button>
+        <hr class="sw-divider" />
+        <button class="sw-btn sw-btn-danger" id="sw-leave-btn">Leave Room</button>
+      </div>
     `;
+    document.body.appendChild(overlay);
 
-    this.cacheDOM();
+    // ── Floating open button ──
+    const pill = document.createElement('div');
+    pill.id = 'sw-open-btn';
+    pill.innerHTML = `<div class="pill-dot" id="sw-pill-dot"></div> SyncWatch`;
+    document.body.appendChild(pill);
+
+    // ── Buffering indicator ──
+    const buf = document.createElement('div');
+    buf.id = 'sw-buffering';
+    buf.innerHTML = `<div class="sw-spinner"></div> Waiting for others…`;
+    document.body.appendChild(buf);
+
+    // ── Toast container ──
+    const toasts = document.createElement('div');
+    toasts.id = 'sw-toast-container';
+    document.body.appendChild(toasts);
+
+    // ── Manual sync banner ──
+    const banner = document.createElement('div');
+    banner.id = 'sw-manual-banner';
+    banner.innerHTML = `
+      <strong>Manual Sync Required</strong>
+      Press <strong>Play</strong> together with your friends.
+    `;
+    document.body.appendChild(banner);
+
+    // Cache refs
+    this.el = {
+      overlay,
+      pill,
+      pillDot:       document.getElementById('sw-pill-dot'),
+      statusDot:     document.getElementById('sw-status-dot'),
+      statusText:    document.getElementById('sw-status-text'),
+      hostChip:      document.getElementById('sw-host-chip'),
+      drmNotice:     document.getElementById('sw-drm-notice'),
+      tabs:          document.getElementById('sw-tabs'),
+      joinView:      document.getElementById('sw-join-view'),
+      paneChat:      document.getElementById('sw-pane-chat'),
+      paneParticipants: document.getElementById('sw-pane-participants'),
+      paneControls:  document.getElementById('sw-pane-controls'),
+      roomInput:     document.getElementById('sw-room-input'),
+      joinBtn:       document.getElementById('sw-join-btn'),
+      createBtn:     document.getElementById('sw-create-btn'),
+      chatMessages:  document.getElementById('sw-chat-messages'),
+      typingEl:      document.getElementById('sw-typing'),
+      chatInput:     document.getElementById('sw-chat-input'),
+      participantsList: document.getElementById('sw-participants-list'),
+      roomDisplay:   document.getElementById('sw-room-display'),
+      copyBtn:       document.getElementById('sw-copy-btn'),
+      claimBtn:      document.getElementById('sw-claim-btn'),
+      releaseBtn:    document.getElementById('sw-release-btn'),
+      leaveBtn:      document.getElementById('sw-leave-btn'),
+      handle:        document.getElementById('sw-tab-handle'),
+      buffering:     document.getElementById('sw-buffering'),
+      toastContainer: document.getElementById('sw-toast-container'),
+      manualBanner:  document.getElementById('sw-manual-banner'),
+    };
   }
 
-  cacheDOM() {
-    this.statusDot = this.container.querySelector('#sw-status');
-    this.joinView = this.container.querySelector('#sw-join-view');
-    this.chatTabContent = this.container.querySelector('#tab-chat');
-    this.participantsTabContent = this.container.querySelector('#tab-participants');
-    this.tabsContainer = this.container.querySelector('#sw-tabs');
-    
-    this.roomInput = this.container.querySelector('#sw-room-input');
-    this.roomDisplay = this.container.querySelector('#sw-room-display');
-    this.chatMessages = this.container.querySelector('#sw-chat-messages');
-    this.chatInput = this.container.querySelector('#sw-chat-input');
-    this.hostBadge = this.container.querySelector('#sw-host-badge');
-    this.claimHostBtn = this.container.querySelector('#sw-claim-host-btn');
-    this.typingIndicator = this.container.querySelector('#sw-typing-indicator');
-    this.participantsList = this.container.querySelector('#sw-participants-list');
-  }
+  // ══════════════════════════════════════════════════════════════════════════
+  // EVENTS
+  // ══════════════════════════════════════════════════════════════════════════
+  _bindEvents() {
+    const { el } = this;
 
-  attachEvents() {
-    this.openBtn.addEventListener('click', () => {
-      this.container.classList.remove('minimized');
-      this.openBtn.style.display = 'none';
-      const btn = this.container.querySelector('#sw-toggle');
-      if (btn) btn.textContent = '▶';
+    // Toggle sidebar
+    el.pill.addEventListener('click',   () => this.open());
+    el.handle.addEventListener('click', () => this.close());
+
+    // Tabs
+    el.overlay.querySelectorAll('.sw-tab').forEach(tab => {
+      tab.addEventListener('click', () => this._switchTab(tab.dataset.tab));
     });
 
-    this.container.querySelector('#sw-toggle').addEventListener('click', () => {
-      this.container.classList.add('minimized');
-      this.openBtn.style.display = 'flex';
-      const btn = this.container.querySelector('#sw-toggle');
-      if (btn) btn.textContent = '◀';
+    // Join / create
+    el.joinBtn.addEventListener('click',   () => this._doJoin());
+    el.createBtn.addEventListener('click', () => {
+      el.roomInput.value = Math.random().toString(36).substr(2, 6);
+      this._doJoin();
     });
+    el.roomInput.addEventListener('keydown', e => { if (e.key === 'Enter') this._doJoin(); });
 
-    // Tabs logic
-    this.container.querySelectorAll('.sw-tab').forEach(tab => {
-      tab.addEventListener('click', (e) => {
-        this.container.querySelectorAll('.sw-tab').forEach(t => t.classList.remove('active'));
-        this.container.querySelectorAll('.sw-tab-content').forEach(c => c.classList.remove('active'));
-        
-        e.target.classList.add('active');
-        this.container.querySelector(`#tab-${e.target.dataset.tab}`).classList.add('active');
-      });
-    });
+    // Copy room ID
+    el.copyBtn.addEventListener('click',    () => this._copyRoomId());
+    el.roomDisplay.addEventListener('click', () => this._copyRoomId());
 
-    this.container.querySelector('#sw-join-btn').addEventListener('click', () => {
-      const roomId = this.roomInput.value.trim();
-      if (roomId) this.joinRoom(roomId);
-    });
-
-    this.container.querySelector('#sw-create-btn').addEventListener('click', () => {
-      const roomId = Math.random().toString(36).substr(2, 6);
-      this.joinRoom(roomId);
-    });
-
-    this.container.querySelector('#sw-leave-btn').addEventListener('click', () => this.leaveRoom());
-
-    this.claimHostBtn.addEventListener('click', () => {
+    // Host
+    el.claimBtn.addEventListener('click',   () => {
       chrome.runtime.sendMessage({ type: 'to-server', data: { type: 'claim-host' } });
     });
-
-    this.chatInput.addEventListener('keypress', (e) => {
-      if (e.key === 'Enter') {
-        const msg = this.chatInput.value.trim();
-        if (msg) {
-          this.sendMessage(msg);
-          this.chatInput.value = '';
-          this.handleTypingStop();
-        }
-      }
+    el.releaseBtn.addEventListener('click', () => {
+      chrome.runtime.sendMessage({ type: 'to-server', data: { type: 'release-host' } });
     });
 
-    this.chatInput.addEventListener('input', () => this.handleTypingStart());
+    // Leave
+    el.leaveBtn.addEventListener('click', () => this._doLeave());
 
-    this.roomDisplay.addEventListener('click', () => {
-      this.roomDisplay.select();
-      navigator.clipboard.writeText(this.roomDisplay.value);
-      this.showToast('Room ID copied to clipboard!', '#5E6AD2', '📋');
+    // Chat
+    el.chatInput.addEventListener('keydown', e => {
+      if (e.key === 'Enter') {
+        const msg = el.chatInput.value.trim();
+        if (!msg) return;
+        this._sendChat(msg);
+        el.chatInput.value = '';
+        this._stopTyping();
+      }
+    });
+    el.chatInput.addEventListener('input', () => this._startTyping());
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // PUBLIC API
+  // ══════════════════════════════════════════════════════════════════════════
+  open()  { this.el.overlay.classList.add('visible');    this.el.pill.style.display = 'none'; }
+  close() { this.el.overlay.classList.remove('visible'); this.el.pill.style.display = 'flex'; }
+
+  setConnected(connected) {
+    this.state.connected = connected;
+    this._renderConnection();
+    if (!connected && this.state.roomId) {
+      this._addSystemMsg('⚡ Connection lost — reconnecting…');
+    }
+  }
+
+  setBuffering(on) {
+    this.el.buffering.classList.toggle('visible', on);
+  }
+
+  showManualSyncPrompt() {
+    this.el.manualBanner.classList.add('visible');
+    setTimeout(() => this.el.manualBanner.classList.remove('visible'), 5000);
+  }
+
+  handleServerMessage(data) {
+    switch (data.type) {
+      case 'sync-state':     this._onSyncState(data);    break;
+      case 'user-joined':    this._onUserJoined(data);   break;
+      case 'user-left':      this._onUserLeft(data);     break;
+      case 'host-changed':   this._onHostChanged(data);  break;
+      case 'chat-message':   this._onChatMsg(data);      break;
+      case 'video-sync':     this._onVideoSync(data);    break;
+      case 'typing-start':   this._onTypingStart(data);  break;
+      case 'typing-stop':    this._onTypingStop(data);   break;
+    }
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // SERVER HANDLERS
+  // ══════════════════════════════════════════════════════════════════════════
+  _onSyncState(data) {
+    this.state.connected    = true;
+    this.state.myId         = data.yourId;
+    this.state.hostId       = data.hostId;
+    this.state.participants = data.participants || [];
+    this._renderAll();
+  }
+
+  _onUserJoined(data) {
+    if (!this.state.participants.find(p => p.id === data.userId)) {
+      this.state.participants.push({ id: data.userId, identity: data.identity, isHost: false });
+    }
+    this._renderParticipants();
+    this._addSystemMsg(`${data.identity.name} joined`);
+    this._toast(data.identity, `${data.identity.name} joined the room`);
+  }
+
+  _onUserLeft(data) {
+    this.state.participants = this.state.participants.filter(p => p.id !== data.userId);
+    // clean up typing
+    if (data.identity?.name) {
+      clearTimeout(this.activeTypers.get(data.identity.name));
+      this.activeTypers.delete(data.identity.name);
+      this._renderTyping();
+    }
+    this._renderParticipants();
+    if (data.identity) {
+      this._addSystemMsg(`${data.identity.name} left`);
+    }
+  }
+
+  _onHostChanged(data) {
+    this.state.hostId = data.hostId;
+    this.state.participants = this.state.participants.map(p => ({
+      ...p,
+      isHost: p.id === data.hostId,
+    }));
+    this._renderParticipants();
+    this._renderHostControls();
+
+    if (data.hostId === this.state.myId) {
+      this._toast(null, '👑 You are now the Host');
+    } else if (data.identity) {
+      this._toast({ color: '#e8b86d', initial: '👑' }, `${data.identity.name} is now Host`);
+    } else {
+      this._addSystemMsg('Host released — anyone can claim');
+    }
+  }
+
+  _onChatMsg(data) {
+    this._onTypingStop(data); // clear their typing indicator
+    this._appendChatMsg(data.identity, data.message, false);
+  }
+
+  _onVideoSync(data) {
+    if (!data.identity) return;
+    const actions = { play:'▶ played', pause:'⏸ paused', seek:'⏩ seeked' };
+    const verb = actions[data.event];
+    if (verb) this._addSystemMsg(`${data.identity.name} ${verb} the video`);
+  }
+
+  _onTypingStart(data) {
+    const name = data.identity?.name;
+    if (!name) return;
+    clearTimeout(this.activeTypers.get(name));
+    // auto-expire after 4 s (safety net)
+    const tid = setTimeout(() => {
+      this.activeTypers.delete(name);
+      this._renderTyping();
+    }, 4000);
+    this.activeTypers.set(name, tid);
+    this._renderTyping();
+  }
+
+  _onTypingStop(data) {
+    const name = data.identity?.name;
+    if (!name) return;
+    clearTimeout(this.activeTypers.get(name));
+    this.activeTypers.delete(name);
+    this._renderTyping();
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // ROOM ACTIONS
+  // ══════════════════════════════════════════════════════════════════════════
+  _doJoin() {
+    const roomId = this.el.roomInput.value.trim().toLowerCase();
+    if (!roomId) { this.el.roomInput.focus(); return; }
+    this.state.roomId = roomId;
+    this._switchToRoom();
+    if (window.SyncOrchestrator) window.SyncOrchestrator.setRoom(roomId);
+
+    // Show DRM notice if needed
+    if (window.SyncOrchestrator?.isDRM?.()) {
+      this.el.drmNotice.style.display = 'block';
+    }
+  }
+
+  _doLeave() {
+    this.state.roomId       = null;
+    this.state.hostId       = null;
+    this.state.participants = [];
+    this.el.chatMessages.innerHTML = '';
+    this.activeTypers.clear();
+    this._renderTyping();
+    this._switchToJoin();
+    if (window.SyncOrchestrator) window.SyncOrchestrator.setRoom(null);
+    this.el.drmNotice.style.display = 'none';
+  }
+
+  _sendChat(message) {
+    const me = this.state.participants.find(p => p.id === this.state.myId);
+    const identity = me?.identity ?? { name: 'You', color: '#e8b86d', initial: 'Y' };
+    this._appendChatMsg(identity, message, true);
+    chrome.runtime.sendMessage({ type: 'to-server', data: { type: 'chat-message', message } });
+  }
+
+  _copyRoomId() {
+    const id = this.state.roomId;
+    if (!id) return;
+    navigator.clipboard.writeText(id).then(() => {
+      this.el.copyBtn.textContent = '✅';
+      setTimeout(() => { this.el.copyBtn.textContent = '📋'; }, 2000);
     });
   }
 
-  handleTypingStart() {
+  // ══════════════════════════════════════════════════════════════════════════
+  // TYPING
+  // ══════════════════════════════════════════════════════════════════════════
+  _startTyping() {
     if (!this.typingTimeout) {
       chrome.runtime.sendMessage({ type: 'to-server', data: { type: 'typing-start' } });
     }
     clearTimeout(this.typingTimeout);
-    this.typingTimeout = setTimeout(() => this.handleTypingStop(), 2000);
+    this.typingTimeout = setTimeout(() => this._stopTyping(), 2500);
   }
 
-  handleTypingStop() {
+  _stopTyping() {
     clearTimeout(this.typingTimeout);
     this.typingTimeout = null;
     chrome.runtime.sendMessage({ type: 'to-server', data: { type: 'typing-stop' } });
   }
 
-  updateView() {
-    this.statusDot.classList.toggle('connected', this.state.connected);
-
-    if (this.state.roomId) {
-      this.joinView.style.display = 'none';
-      this.tabsContainer.style.display = 'flex';
-      this.chatTabContent.style.display = this.container.querySelector('[data-tab="chat"]').classList.contains('active') ? 'flex' : 'none';
-      
-      this.roomDisplay.value = this.state.roomId;
-      
-      if (this.state.hostId) {
-        this.claimHostBtn.style.display = 'none';
-        if (this.state.hostId === this.state.myId) {
-          this.hostBadge.style.display = 'inline-block';
-        } else {
-          this.hostBadge.style.display = 'none';
-        }
-      } else {
-        this.claimHostBtn.style.display = 'block';
-        this.hostBadge.style.display = 'none';
-      }
-
-      this.renderParticipants();
-    } else {
-      this.joinView.style.display = 'block';
-      this.tabsContainer.style.display = 'none';
-      this.chatTabContent.style.display = 'none';
-      this.participantsTabContent.style.display = 'none';
-      this.chatMessages.innerHTML = '';
-      this.hostBadge.style.display = 'none';
+  _renderTyping() {
+    const names = Array.from(this.activeTypers.keys());
+    if (!names.length) {
+      this.el.typingEl.textContent = '';
+      return;
     }
+    const str = names.slice(0, 2).join(', ');
+    const more = names.length > 2 ? ' +more' : '';
+    const verb = names.length > 1 ? 'are' : 'is';
+    this.el.typingEl.textContent = `${str}${more} ${verb} typing…`;
   }
 
-  renderParticipants() {
-    this.participantsList.innerHTML = '';
+  // ══════════════════════════════════════════════════════════════════════════
+  // RENDER
+  // ══════════════════════════════════════════════════════════════════════════
+  _renderAll() {
+    this._renderConnection();
+    if (this.state.roomId) {
+      this._switchToRoom();
+    } else {
+      this._switchToJoin();
+    }
+    this._renderParticipants();
+    this._renderHostControls();
+  }
+
+  _renderConnection() {
+    const on = this.state.connected;
+    this.el.statusDot.classList.toggle('on', on);
+    this.el.statusText.textContent = on ? 'Connected' : 'Offline';
+    this.el.pillDot.classList.toggle('connected', on);
+  }
+
+  _switchToJoin() {
+    this.state.view = 'join';
+    this.el.tabs.style.display       = 'none';
+    this._showPane('join-view');
+    this.el.hostChip.style.display   = 'none';
+  }
+
+  _switchToRoom() {
+    this.state.view = 'room';
+    this.el.tabs.style.display       = 'flex';
+    this.el.roomDisplay.value        = this.state.roomId;
+    this._switchTab(this.activeTab);
+  }
+
+  _showPane(id) {
+    ['join-view','pane-chat','pane-participants','pane-controls'].forEach(p => {
+      const el = document.getElementById(`sw-${p}`);
+      if (el) el.classList.remove('active');
+    });
+    const target = document.getElementById(`sw-${id}`);
+    if (target) target.classList.add('active');
+  }
+
+  _switchTab(tab) {
+    if (this.state.view !== 'room') return;
+    this.activeTab = tab;
+
+    this.el.overlay.querySelectorAll('.sw-tab').forEach(t => {
+      t.classList.toggle('active', t.dataset.tab === tab);
+    });
+
+    const map = { chat:'pane-chat', participants:'pane-participants', controls:'pane-controls' };
+    this._showPane(map[tab] ?? 'pane-chat');
+  }
+
+  _renderParticipants() {
+    const list = this.el.participantsList;
+    list.innerHTML = '';
+
     for (const p of this.state.participants) {
-      const isMe = p.id === this.state.myId;
+      const isMe   = p.id === this.state.myId;
       const isHost = p.id === this.state.hostId;
-      
+
       const el = document.createElement('div');
       el.className = 'sw-participant';
       el.innerHTML = `
-        <div class="sw-avatar" style="background: ${p.identity.color}">${p.identity.initial}</div>
-        <div class="sw-participant-info">
-          <div class="sw-participant-name" style="color: ${p.identity.color}">
-            ${p.identity.name} ${isMe ? '(You)' : ''}
+        <div class="sw-p-avatar" style="background:${p.identity.color}">${p.identity.initial}</div>
+        <div class="sw-p-info">
+          <div class="sw-p-name" style="color:${p.identity.color}">
+            ${p.identity.name}${isMe ? ' (you)' : ''}
           </div>
-          <div class="sw-participant-role">${isHost ? 'Host' : 'Viewer'}</div>
+          <div class="sw-p-role">${isHost ? 'Host' : 'Viewer'}</div>
         </div>
+        ${isHost ? '<span class="sw-p-crown">👑</span>' : ''}
       `;
-      this.participantsList.appendChild(el);
+      list.appendChild(el);
     }
   }
 
-  joinRoom(roomId) {
-    this.state.roomId = roomId;
-    this.updateView();
-    if (window.SyncOrchestrator) window.SyncOrchestrator.setRoom(roomId);
+  _renderHostControls() {
+    const isHost    = this.state.hostId === this.state.myId;
+    const noHost    = !this.state.hostId;
+    this.el.hostChip.style.display   = isHost   ? 'inline-block' : 'none';
+    this.el.claimBtn.style.display   = noHost   ? 'block'  : 'none';
+    this.el.releaseBtn.style.display = isHost   ? 'block'  : 'none';
   }
 
-  leaveRoom() {
-    this.state.roomId = null;
-    this.state.hostId = null;
-    this.state.participants = [];
-    this.updateView();
-    if (window.SyncOrchestrator) window.SyncOrchestrator.setRoom(null);
-  }
-
-  sendMessage(message) {
-    const myIdentity = this.state.participants.find(p => p.id === this.state.myId)?.identity || { name: 'You', color: '#5E6AD2', initial: 'Y' };
-    this.appendMessage(myIdentity, message, true);
-    chrome.runtime.sendMessage({
-      type: 'to-server',
-      data: { type: 'chat-message', message }
-    });
-  }
-
-  appendMessage(identity, text, isOwn = false) {
+  // ══════════════════════════════════════════════════════════════════════════
+  // CHAT
+  // ══════════════════════════════════════════════════════════════════════════
+  _appendChatMsg(identity, text, isOwn) {
     const el = document.createElement('div');
-    el.className = 'sw-message';
-    if (isOwn) el.classList.add('own-message');
-    
+    el.className = `sw-msg${isOwn ? ' own' : ''}`;
     el.innerHTML = `
-      <div class="sw-message-header">
-        ${!isOwn ? `<div class="sw-msg-avatar" style="background: ${identity.color}">${identity.initial}</div>` : ''}
-        <span class="sender" style="color: ${isOwn ? '#fff' : identity.color}">${identity.name}</span>
+      <div class="sw-msg-avatar" style="background:${identity.color}">${identity.initial}</div>
+      <div class="sw-msg-body">
+        <div class="sw-msg-name" style="color:${identity.color}">${identity.name}</div>
+        <div class="sw-msg-bubble">${this._escapeHtml(text)}</div>
       </div>
-      ${text}
     `;
-    
-    this.chatMessages.appendChild(el);
-    this.chatMessages.scrollTop = this.chatMessages.scrollHeight;
+    this.el.chatMessages.appendChild(el);
+    this.el.chatMessages.scrollTop = this.el.chatMessages.scrollHeight;
   }
 
-  showToast(message, color, initial) {
+  _addSystemMsg(text) {
+    const el = document.createElement('div');
+    el.className = 'sw-system-msg';
+    el.textContent = text;
+    this.el.chatMessages.appendChild(el);
+    this.el.chatMessages.scrollTop = this.el.chatMessages.scrollHeight;
+  }
+
+  _escapeHtml(str) {
+    return str
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+      .replace(/"/g,'&quot;').replace(/'/g,'&#039;');
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // TOASTS
+  // ══════════════════════════════════════════════════════════════════════════
+  _toast(identity, text) {
     const el = document.createElement('div');
     el.className = 'sw-toast';
-    el.innerHTML = `<div class="sw-avatar" style="background: ${color}; width: 28px; height: 28px; font-size: 14px;">${initial}</div> ${message}`;
-    this.toastContainer.appendChild(el);
-    setTimeout(() => {
-      if (el.parentNode) el.parentNode.removeChild(el);
-    }, 4000);
-  }
-
-  updateTypingIndicator() {
-    if (this.activeTypers.size === 0) {
-      this.typingIndicator.textContent = '';
+    if (identity) {
+      el.innerHTML = `<div class="sw-toast-avatar" style="background:${identity.color}">${identity.initial}</div>${this._escapeHtml(text)}`;
     } else {
-      const names = Array.from(this.activeTypers).slice(0, 2).join(', ');
-      const suffix = this.activeTypers.size > 2 ? ' and others' : '';
-      const verb = this.activeTypers.size > 1 ? 'are' : 'is';
-      this.typingIndicator.textContent = `${names}${suffix} ${verb} typing...`;
+      el.textContent = text;
     }
+    this.el.toastContainer.appendChild(el);
+    setTimeout(() => el.remove(), 4200);
   }
 
-  handleServerMessage(data) {
-    if (data.type === 'sync-state') {
-      this.state.connected = true;
-      this.state.hostId = data.hostId;
-      this.state.myId = data.yourId;
-      this.state.participants = data.participants || [];
-      this.updateView();
-    }
-    
-    if (data.type === 'user-joined') {
-      this.state.participants.push({ id: data.userId, identity: data.identity, isHost: false });
-      this.showToast(`${data.identity.name} joined the room`, data.identity.color, data.identity.initial);
-      this.updateView();
-    }
-    
-    if (data.type === 'user-left') {
-      this.state.participants = this.state.participants.filter(p => p.id !== data.userId);
-      if (data.identity) {
-        this.showToast(`${data.identity.name} left the room`, data.identity.color, data.identity.initial);
-      }
-      this.activeTypers.delete(data.identity?.name);
-      this.updateTypingIndicator();
-      this.updateView();
-    }
-    
-    if (data.type === 'host-changed') {
-      this.state.hostId = data.hostId;
-      if (data.hostId === this.state.myId) {
-        this.showToast('You are now the Host', '#FFD60A', '👑');
-      } else if (data.identity) {
-        this.showToast(`${data.identity.name} is now the Host`, '#FFD60A', '👑');
-      }
-      this.updateView();
-    }
-    
-    if (data.type === 'chat-message') {
-      this.activeTypers.delete(data.identity.name);
-      this.updateTypingIndicator();
-      this.appendMessage(data.identity, data.message, false);
-    }
-
-    if (data.type === 'video-sync' && data.identity) {
-      const action = data.event === 'play' ? 'played' : data.event === 'pause' ? 'paused' : 'seeked';
-      this.showToast(`${data.identity.name} ${action} the video`, data.identity.color, '▶️');
-    }
-
-    if (data.type === 'typing-start') {
-      this.activeTypers.add(data.identity.name);
-      this.updateTypingIndicator();
-    }
-
-    if (data.type === 'typing-stop') {
-      this.activeTypers.delete(data.identity.name);
-      this.updateTypingIndicator();
-    }
-  }
-
-  checkStatus() {
-    chrome.runtime.sendMessage({ type: 'get-status' }, (response) => {
-      if (response && response.connected) {
-        this.state.connected = response.connected;
-        this.state.roomId = response.room;
-        this.state.myId = response.myId;
-      }
+  // ══════════════════════════════════════════════════════════════════════════
+  // STATUS CHECK (on load)
+  // ══════════════════════════════════════════════════════════════════════════
+  _syncStatus() {
+    chrome.runtime.sendMessage({ type: 'get-status' }, (res) => {
+      if (chrome.runtime.lastError) return;
+      if (res?.connected) this.state.connected = true;
+      if (res?.room)      this.state.roomId    = res.room;
+      if (res?.myId)      this.state.myId      = res.myId;
+      this._renderAll();
     });
   }
 }
 
+// ── Singleton ──────────────────────────────────────────────────────────────
 window.SyncUI = new SyncWatchUI();

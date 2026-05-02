@@ -1,23 +1,25 @@
 {
   "manifest_version": 3,
   "name": "SyncWatch",
-  "version": "1.0.0",
-  "description": "Watch videos synchronously with friends across the web.",
+  "version": "2.0.0",
+  "description": "Watch videos in perfect sync with friends — anywhere on the web.",
   "permissions": [
     "activeTab",
     "storage",
-    "scripting"
+    "scripting",
+    "tabs"
   ],
   "host_permissions": [
     "<all_urls>"
   ],
   "icons": {
-    "16": "icons/icon.png",
-    "48": "icons/icon.png",
+    "16":  "icons/icon.png",
+    "48":  "icons/icon.png",
     "128": "icons/icon.png"
   },
   "background": {
-    "service_worker": "background/background.js"
+    "service_worker": "background/background.js",
+    "type": "module"
   },
   "content_scripts": [
     {
@@ -27,14 +29,22 @@
         "content/adapters/base.js",
         "content/adapters/generic.js",
         "content/adapters/youtube.js",
+        "content/adapters/netflix.js",
         "content/ui.js",
         "content/content.js"
       ],
-      "run_at": "document_end"
+      "run_at": "document_end",
+      "all_frames": false
     }
   ],
   "action": {
     "default_popup": "popup/popup.html",
     "default_title": "SyncWatch"
-  }
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["icons/*"],
+      "matches":   ["<all_urls>"]
+    }
+  ]
 }
