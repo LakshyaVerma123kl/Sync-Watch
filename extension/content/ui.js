@@ -176,7 +176,7 @@ class SyncWatchUI {
           </div>
 
           <!-- ROOM PANE -->
-          <div class="sw-pane" id="sw-pane-room" style="display:flex;padding:12px;gap:9px;overflow-y:auto;scrollbar-width:thin;flex-direction:column;">
+          <div class="sw-pane" id="sw-pane-room">
 
             <div class="sw-room-id-block">
               <div class="sw-room-id-label">Room ID</div>
