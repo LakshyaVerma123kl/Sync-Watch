@@ -22,13 +22,20 @@ class SyncWatchUI {
 
     this.container = document.createElement('div');
     this.container.id = 'syncwatch-overlay';
+    this.container.classList.add('minimized'); // Start hidden
     
     this.toastContainer = document.createElement('div');
     this.toastContainer.id = 'sw-toast-container';
     
+    this.openBtn = document.createElement('div');
+    this.openBtn.id = 'sw-open-btn';
+    this.openBtn.className = 'sw-video-overlay-btn';
+    this.openBtn.innerHTML = '<span class="icon">🍿</span> SyncWatch';
+    
     this.render();
     document.body.appendChild(this.container);
     document.body.appendChild(this.toastContainer);
+    document.body.appendChild(this.openBtn);
     
     this.attachEvents();
     this.checkStatus();
@@ -36,7 +43,7 @@ class SyncWatchUI {
 
   render() {
     this.container.innerHTML = `
-      <div class="sw-toggle-btn" id="sw-toggle">◀</div>
+      <div class="sw-toggle-btn" id="sw-toggle">▶</div>
       <div class="syncwatch-header">
         <div class="syncwatch-title-row">
           <h3 class="syncwatch-title">
@@ -102,10 +109,18 @@ class SyncWatchUI {
   }
 
   attachEvents() {
-    this.container.querySelector('#sw-toggle').addEventListener('click', () => {
-      this.container.classList.toggle('minimized');
+    this.openBtn.addEventListener('click', () => {
+      this.container.classList.remove('minimized');
+      this.openBtn.style.display = 'none';
       const btn = this.container.querySelector('#sw-toggle');
-      btn.textContent = this.container.classList.contains('minimized') ? '▶' : '◀';
+      if (btn) btn.textContent = '▶';
+    });
+
+    this.container.querySelector('#sw-toggle').addEventListener('click', () => {
+      this.container.classList.add('minimized');
+      this.openBtn.style.display = 'flex';
+      const btn = this.container.querySelector('#sw-toggle');
+      if (btn) btn.textContent = '◀';
     });
 
     // Tabs logic

@@ -30,7 +30,39 @@
   display: flex;
   flex-direction: column;
   transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
-  transform: translateX(0);
+  transform: translateX(100%); /* Start hidden */
+}
+
+.sw-video-overlay-btn {
+  position: fixed;
+  top: 24px;
+  right: 24px;
+  background: var(--sw-bg-glass);
+  backdrop-filter: blur(24px) saturate(180%);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  border: 1px solid var(--sw-border);
+  color: #fff;
+  padding: 10px 16px;
+  border-radius: 20px;
+  font-family: 'Inter', sans-serif;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  z-index: 2147483646; /* Just below sidebar */
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+  transition: all 0.3s ease;
+}
+
+.sw-video-overlay-btn:hover {
+  background: rgba(30, 30, 30, 0.95);
+  transform: scale(1.05);
+}
+
+.sw-video-overlay-btn .icon {
+  font-size: 16px;
 }
 
 #syncwatch-overlay.minimized {

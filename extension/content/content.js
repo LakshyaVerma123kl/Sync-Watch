@@ -74,6 +74,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'open-sidebar') {
     if (window.SyncUI && window.SyncUI.container) {
       window.SyncUI.container.classList.remove('minimized');
+      if (window.SyncUI.openBtn) window.SyncUI.openBtn.style.display = 'none';
       const btn = window.SyncUI.container.querySelector('#sw-toggle');
       if (btn) btn.textContent = '▶';
     }
