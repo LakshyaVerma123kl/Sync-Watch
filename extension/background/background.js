@@ -1,7 +1,7 @@
-// SyncWatch Background Service Worker v2.1
+// SyncWatch Background Service Worker v3.0
 // Single WS connection, routes messages to content scripts.
 
-const SERVER_URL = 'ws://localhost:3000'; // replaced by build.js for production
+const SERVER_URL = 'wss://sync-watch-ufrb.onrender.com';
 
 let socket         = null;
 let currentRoom    = null;

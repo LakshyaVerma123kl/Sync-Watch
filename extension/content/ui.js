@@ -1,8 +1,7 @@
 /**
- * SyncWatch UI v2.1 — State machine sidebar + reaction overlay + drift meter.
- * New: emoji reactions panel, floating emoji burst animations,
- *      live sync-delta indicator, "Sync Now" for hosts,
- *      per-user drift chips in participants list.
+ * SyncWatch UI v3.0
+ * Completely rewritten — collapsible panel, mini mode, edge handle,
+ * live time display, peek strip, contextual toasts, emoji burst.
  */
 class SyncWatchUI {
   constructor() {
@@ -13,209 +12,280 @@ class SyncWatchUI {
       myId:         null,
       participants: [],
       view:         'join', // 'join' | 'room'
+      playing:      false,
     };
 
     this.activeTab     = 'chat';
     this.typingTimeout = null;
     this.activeTypers  = new Map();
-    this.driftInterval = null;
-    this.el = {};
+    this._timeInterval = null;
+    this._peekTimeout  = null;
+    this.el            = {};
+    this.panelOpen     = false;
+    this.miniMode      = false;
+    this.peekMsgs      = [];
 
     this._build();
     this._bindEvents();
     this._syncStatus();
+    this._startTimeUpdater();
   }
 
-  // ══════════════════════════════════════════════════════════════════════════
-  // BUILD
-  // ══════════════════════════════════════════════════════════════════════════
+  // ══════════════════════════════════════════════════════
+  // BUILD DOM
+  // ══════════════════════════════════════════════════════
   _build() {
-    if (document.getElementById('syncwatch-overlay')) {
-      this.el.overlay = document.getElementById('syncwatch-overlay');
-      return;
-    }
+    // Remove existing if any
+    document.getElementById('sw-root')?.remove();
+    document.getElementById('sw-launcher')?.remove();
+    document.getElementById('sw-buf')?.remove();
+    document.getElementById('sw-toasts')?.remove();
+    document.getElementById('sw-burst')?.remove();
+    document.getElementById('sw-manual')?.remove();
+    document.getElementById('sw-peek')?.remove();
 
-    const overlay = document.createElement('div');
-    overlay.id = 'syncwatch-overlay';
-    overlay.innerHTML = `
-      <div id="sw-tab-handle">SYNC</div>
+    // ── Panel root ──────────────────────────────────────
+    const root = document.createElement('div');
+    root.id = 'sw-root';
+    root.innerHTML = `
+      <div id="sw-panel">
+        <div id="sw-edge-handle" title="Collapse"><div class="sw-handle-pip"></div><div class="sw-handle-pip"></div></div>
 
-      <!-- Header -->
-      <div class="sw-header">
-        <div class="sw-header-top">
-          <div class="sw-logo">
-            <span class="sw-logo-icon">🎬</span>SyncWatch
-            <span class="sw-host-chip" id="sw-host-chip">HOST</span>
+        <!-- Mini rail (collapsed mode) -->
+        <div id="sw-mini-rail">
+          <button class="sw-rail-btn" id="sw-rail-expand" title="Expand">◀</button>
+          <button class="sw-rail-btn" id="sw-rail-chat" title="Chat">💬<span class="sw-rail-badge" id="sw-chat-badge"></span></button>
+          <button class="sw-rail-btn" id="sw-rail-people" title="People">👥</button>
+          <button class="sw-rail-btn" id="sw-rail-room" title="Room">⚙</button>
+          <button class="sw-rail-btn" id="sw-rail-leave" title="Leave room" style="color:var(--c-red)">✕</button>
+        </div>
+
+        <!-- HEADER -->
+        <div id="sw-header">
+          <div class="sw-header-row1">
+            <div class="sw-logo">
+              <div class="sw-logo-mark">🎬</div>
+              SyncWatch
+            </div>
+            <div class="sw-header-actions">
+              <div class="sw-host-badge" id="sw-host-badge">HOST</div>
+              <button class="sw-icon-btn" id="sw-mini-btn" title="Collapse">◀</button>
+              <button class="sw-icon-btn" id="sw-close-btn" title="Hide panel">✕</button>
+            </div>
           </div>
-          <div class="sw-status-badge">
-            <div class="sw-status-dot" id="sw-status-dot"></div>
-            <span id="sw-status-text">Offline</span>
+          <div class="sw-connection-row">
+            <div class="sw-conn-badge">
+              <div class="sw-dot" id="sw-dot"></div>
+              <span id="sw-conn-text">Offline</span>
+            </div>
           </div>
-        </div>
-        <!-- Drift indicator: only visible in room -->
-        <div class="sw-drift-bar" id="sw-drift-bar" style="display:none">
-          <div class="sw-drift-label">Sync</div>
-          <div class="sw-drift-indicator" id="sw-drift-indicator">
-            <div class="sw-drift-fill" id="sw-drift-fill"></div>
+          <!-- Drift bar (non-host in room) -->
+          <div class="sw-drift" id="sw-drift">
+            <div class="sw-drift-lbl">Sync</div>
+            <div class="sw-drift-track"><div class="sw-drift-fill" id="sw-drift-fill"></div></div>
+            <div class="sw-drift-val" id="sw-drift-val">—</div>
           </div>
-          <div class="sw-drift-value" id="sw-drift-value">—</div>
+          <!-- DRM notice -->
+          <div class="sw-drm-notice" id="sw-drm"></div>
         </div>
-      </div>
 
-      <!-- DRM notice -->
-      <div class="sw-drm-notice" id="sw-drm-notice">
-        ⚠️ DRM content — Manual sync mode.
-      </div>
-
-      <!-- Tab bar -->
-      <div class="sw-tabs" id="sw-tabs" style="display:none">
-        <div class="sw-tab active" data-tab="chat">💬 Chat</div>
-        <div class="sw-tab" data-tab="participants">👥 People</div>
-        <div class="sw-tab" data-tab="controls">⚙️ Room</div>
-      </div>
-
-      <!-- ── JOIN VIEW ── -->
-      <div class="sw-pane active sw-join-view" id="sw-join-view">
-        <div>
-          <div class="sw-field-label">Room ID</div>
-          <input id="sw-room-input" class="sw-input" type="text"
-                 placeholder="Enter room code…" spellcheck="false" autocomplete="off" />
+        <!-- TAB BAR -->
+        <div id="sw-tabs">
+          <button class="sw-tab active" data-tab="chat">💬 Chat</button>
+          <button class="sw-tab" data-tab="people">👥 People</button>
+          <button class="sw-tab" data-tab="room">⚙ Room</button>
         </div>
-        <div class="sw-room-actions">
-          <button class="sw-btn sw-btn-primary" id="sw-join-btn">Join</button>
-          <button class="sw-btn sw-btn-secondary" id="sw-create-btn">New Room</button>
-        </div>
-        <div class="sw-join-footer">
-          Create a room and share the code with friends.<br>Everyone needs the same video open.
-        </div>
-      </div>
 
-      <!-- ── CHAT PANE ── -->
-      <div class="sw-pane" id="sw-pane-chat">
-        <!-- Reactions bar -->
-        <div class="sw-reactions-bar" id="sw-reactions-bar">
-          ${['❤️','🔥','😂','👍','🤯','👏','💀','🎉','😮','😍'].map(e =>
-            `<button class="sw-react-btn" data-emoji="${e}">${e}</button>`
-          ).join('')}
-        </div>
-        <div class="sw-chat-messages" id="sw-chat-messages"></div>
-        <div class="sw-typing" id="sw-typing"></div>
-        <div class="sw-chat-footer">
-          <input id="sw-chat-input" class="sw-chat-input"
-                 placeholder="Message… (Enter to send)" autocomplete="off" />
-        </div>
-      </div>
+        <!-- MAIN CONTENT -->
+        <div id="sw-main-content">
 
-      <!-- ── PARTICIPANTS PANE ── -->
-      <div class="sw-pane" id="sw-pane-participants">
-        <div class="sw-participants-list" id="sw-participants-list"></div>
-      </div>
-
-      <!-- ── CONTROLS PANE ── -->
-      <div class="sw-pane sw-join-view" id="sw-pane-controls">
-        <div>
-          <div class="sw-field-label">Room ID (click to copy)</div>
-          <div class="sw-room-id-row">
-            <input id="sw-room-display" class="sw-input" type="text" readonly />
-            <button class="sw-copy-btn" id="sw-copy-btn" title="Copy">📋</button>
+          <!-- JOIN PANE -->
+          <div class="sw-pane active" id="sw-pane-join">
+            <div class="sw-join-hero">
+              <div class="sw-join-hero-icon">🎬</div>
+              <h2>Watch Together</h2>
+              <p>Sync any video with friends.<br>Works on YouTube, Netflix, Prime &amp; more.</p>
+            </div>
+            <div class="sw-field">
+              <div class="sw-label">Room Code</div>
+              <input id="sw-room-input" class="sw-input" type="text"
+                     placeholder="Enter room code…" spellcheck="false" autocomplete="off" maxlength="32" />
+            </div>
+            <div class="sw-btn-row">
+              <button class="sw-btn sw-btn-primary" id="sw-join-btn">⚡ Join</button>
+              <button class="sw-btn sw-btn-secondary" id="sw-create-btn">✦ New Room</button>
+            </div>
+            <hr class="sw-divider">
+            <div class="sw-join-footer">Create a room → share the code → everyone opens the same video and joins.</div>
           </div>
-        </div>
 
-        <button class="sw-btn sw-btn-sync" id="sw-sync-now-btn" style="display:none">
-          ⚡ Sync Everyone to My Position
-        </button>
-        <button class="sw-btn sw-btn-ghost" id="sw-claim-btn" style="display:none">
-          👑 Claim Host
-        </button>
-        <button class="sw-btn sw-btn-ghost" id="sw-release-btn" style="display:none">
-          Release Host
-        </button>
-        <hr class="sw-divider" />
-        <button class="sw-btn sw-btn-danger" id="sw-leave-btn">Leave Room</button>
+          <!-- CHAT PANE -->
+          <div class="sw-pane" id="sw-pane-chat">
+            <div class="sw-reactions" id="sw-reactions">
+              ${['❤️','🔥','😂','👍','🤯','👏','💀','🎉','😮','😍','🚀','✨'].map(e =>
+                `<button class="sw-react" data-emoji="${e}">${e}</button>`
+              ).join('')}
+            </div>
+            <div class="sw-messages" id="sw-messages"></div>
+            <div class="sw-typing-row" id="sw-typing"></div>
+            <div class="sw-chat-footer">
+              <div class="sw-chat-input-wrap">
+                <input id="sw-chat-input" class="sw-chat-input" placeholder="Message…" autocomplete="off" maxlength="500" />
+                <button class="sw-send-btn" id="sw-send-btn">➤</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- PEOPLE PANE -->
+          <div class="sw-pane" id="sw-pane-people">
+            <div class="sw-people-list" id="sw-people"></div>
+          </div>
+
+          <!-- ROOM PANE -->
+          <div class="sw-pane" id="sw-pane-room" style="padding:14px;gap:10px;overflow-y:auto;scrollbar-width:thin;">
+
+            <div class="sw-room-id-block">
+              <div class="sw-room-id-label">Room ID — click to copy</div>
+              <div class="sw-room-id-row">
+                <div class="sw-room-id-val" id="sw-room-val">—</div>
+                <button class="sw-copy-btn" id="sw-copy-btn">Copy</button>
+              </div>
+            </div>
+
+            <!-- Live video clock -->
+            <div class="sw-video-block" id="sw-video-block">
+              <div class="sw-video-time">
+                <div class="sw-time-display" id="sw-time-display">—:——</div>
+                <div class="sw-play-state paused" id="sw-play-state">Paused</div>
+              </div>
+              <div class="sw-video-controls">
+                <button class="sw-btn sw-btn-sync sw-btn-sm" id="sw-sync-now-btn" style="display:none">⚡ Sync Everyone Now</button>
+              </div>
+            </div>
+
+            <button class="sw-btn sw-btn-ghost" id="sw-claim-btn">👑 Claim Host</button>
+            <button class="sw-btn sw-btn-ghost" id="sw-release-btn" style="display:none">Release Host</button>
+            <hr class="sw-divider">
+            <button class="sw-btn sw-btn-danger" id="sw-leave-btn">Leave Room</button>
+          </div>
+
+        </div>
       </div>
     `;
-    document.body.appendChild(overlay);
+    document.documentElement.appendChild(root);
 
-    // Floating open pill
-    const pill = document.createElement('div');
-    pill.id = 'sw-open-btn';
-    pill.innerHTML = `<div class="pill-dot" id="sw-pill-dot"></div> SyncWatch`;
-    document.body.appendChild(pill);
+    // ── Launcher ────────────────────────────────────────
+    const launcher = document.createElement('div');
+    launcher.id = 'sw-launcher';
+    launcher.innerHTML = `
+      <div class="sw-launcher-icon">🎬</div>
+      <div class="sw-launcher-text">
+        <span class="sw-launcher-title">SyncWatch</span>
+        <span class="sw-launcher-sub">Click to open</span>
+      </div>
+      <div class="sw-status-pip" id="sw-pip"></div>
+    `;
+    document.documentElement.appendChild(launcher);
 
-    // Buffering toast
+    // ── Floating overlays ───────────────────────────────
     const buf = document.createElement('div');
-    buf.id = 'sw-buffering';
-    buf.innerHTML = `<div class="sw-spinner"></div> Waiting for others…`;
-    document.body.appendChild(buf);
+    buf.id = 'sw-buf';
+    buf.innerHTML = `<div class="sw-spin"></div> Waiting for others…`;
+    document.documentElement.appendChild(buf);
 
-    // Toast container
     const toasts = document.createElement('div');
-    toasts.id = 'sw-toast-container';
-    document.body.appendChild(toasts);
+    toasts.id = 'sw-toasts';
+    document.documentElement.appendChild(toasts);
 
-    // Reaction burst container (renders on top of video)
     const burst = document.createElement('div');
-    burst.id = 'sw-burst-container';
-    document.body.appendChild(burst);
+    burst.id = 'sw-burst';
+    document.documentElement.appendChild(burst);
 
-    // Manual sync banner
-    const banner = document.createElement('div');
-    banner.id = 'sw-manual-banner';
-    banner.innerHTML = `<strong>Manual Sync Required</strong>
-      Press <strong>Play</strong> together with your friends.`;
-    document.body.appendChild(banner);
+    const manual = document.createElement('div');
+    manual.id = 'sw-manual';
+    manual.innerHTML = `<strong>Manual Sync</strong><span>Press <strong>Play</strong> together with your friends at the same time.</span>`;
+    document.documentElement.appendChild(manual);
 
+    const peek = document.createElement('div');
+    peek.id = 'sw-peek';
+    document.documentElement.appendChild(peek);
+
+    // ── Cache refs ──────────────────────────────────────
     this.el = {
-      overlay,
-      pill,
-      pillDot:          document.getElementById('sw-pill-dot'),
-      statusDot:        document.getElementById('sw-status-dot'),
-      statusText:       document.getElementById('sw-status-text'),
-      hostChip:         document.getElementById('sw-host-chip'),
-      drmNotice:        document.getElementById('sw-drm-notice'),
-      driftBar:         document.getElementById('sw-drift-bar'),
-      driftFill:        document.getElementById('sw-drift-fill'),
-      driftValue:       document.getElementById('sw-drift-value'),
-      tabs:             document.getElementById('sw-tabs'),
-      joinView:         document.getElementById('sw-join-view'),
-      paneChat:         document.getElementById('sw-pane-chat'),
-      paneParticipants: document.getElementById('sw-pane-participants'),
-      paneControls:     document.getElementById('sw-pane-controls'),
-      roomInput:        document.getElementById('sw-room-input'),
-      joinBtn:          document.getElementById('sw-join-btn'),
-      createBtn:        document.getElementById('sw-create-btn'),
-      chatMessages:     document.getElementById('sw-chat-messages'),
-      typingEl:         document.getElementById('sw-typing'),
-      chatInput:        document.getElementById('sw-chat-input'),
-      participantsList: document.getElementById('sw-participants-list'),
-      roomDisplay:      document.getElementById('sw-room-display'),
-      copyBtn:          document.getElementById('sw-copy-btn'),
-      syncNowBtn:       document.getElementById('sw-sync-now-btn'),
-      claimBtn:         document.getElementById('sw-claim-btn'),
-      releaseBtn:       document.getElementById('sw-release-btn'),
-      leaveBtn:         document.getElementById('sw-leave-btn'),
-      handle:           document.getElementById('sw-tab-handle'),
-      buffering:        document.getElementById('sw-buffering'),
-      toastContainer:   document.getElementById('sw-toast-container'),
-      burstContainer:   document.getElementById('sw-burst-container'),
-      manualBanner:     document.getElementById('sw-manual-banner'),
-      reactionsBar:     document.getElementById('sw-reactions-bar'),
+      root, launcher,
+      panel:         root.querySelector('#sw-panel'),
+      header:        root.querySelector('#sw-header'),
+      dot:           root.querySelector('#sw-dot'),
+      connText:      root.querySelector('#sw-conn-text'),
+      hostBadge:     root.querySelector('#sw-host-badge'),
+      drift:         root.querySelector('#sw-drift'),
+      driftFill:     root.querySelector('#sw-drift-fill'),
+      driftVal:      root.querySelector('#sw-drift-val'),
+      drm:           root.querySelector('#sw-drm'),
+      tabs:          root.querySelector('#sw-tabs'),
+      paneJoin:      root.querySelector('#sw-pane-join'),
+      paneChat:      root.querySelector('#sw-pane-chat'),
+      panePeople:    root.querySelector('#sw-pane-people'),
+      paneRoom:      root.querySelector('#sw-pane-room'),
+      roomInput:     root.querySelector('#sw-room-input'),
+      joinBtn:       root.querySelector('#sw-join-btn'),
+      createBtn:     root.querySelector('#sw-create-btn'),
+      messages:      root.querySelector('#sw-messages'),
+      typing:        root.querySelector('#sw-typing'),
+      chatInput:     root.querySelector('#sw-chat-input'),
+      sendBtn:       root.querySelector('#sw-send-btn'),
+      people:        root.querySelector('#sw-people'),
+      roomVal:       root.querySelector('#sw-room-val'),
+      copyBtn:       root.querySelector('#sw-copy-btn'),
+      timeDisplay:   root.querySelector('#sw-time-display'),
+      playState:     root.querySelector('#sw-play-state'),
+      videoBlock:    root.querySelector('#sw-video-block'),
+      syncNowBtn:    root.querySelector('#sw-sync-now-btn'),
+      claimBtn:      root.querySelector('#sw-claim-btn'),
+      releaseBtn:    root.querySelector('#sw-release-btn'),
+      leaveBtn:      root.querySelector('#sw-leave-btn'),
+      edgeHandle:    root.querySelector('#sw-edge-handle'),
+      miniBtn:       root.querySelector('#sw-mini-btn'),
+      closeBtn:      root.querySelector('#sw-close-btn'),
+      miniRail:      root.querySelector('#sw-mini-rail'),
+      railExpand:    root.querySelector('#sw-rail-expand'),
+      railChat:      root.querySelector('#sw-rail-chat'),
+      railPeople:    root.querySelector('#sw-rail-people'),
+      railRoom:      root.querySelector('#sw-rail-room'),
+      railLeave:     root.querySelector('#sw-rail-leave'),
+      chatBadge:     root.querySelector('#sw-chat-badge'),
+      pip:           root.querySelector('#sw-pip'),
+      buf, toasts, burst, manual, peek,
     };
   }
 
-  // ══════════════════════════════════════════════════════════════════════════
+  // ══════════════════════════════════════════════════════
   // EVENTS
-  // ══════════════════════════════════════════════════════════════════════════
+  // ══════════════════════════════════════════════════════
   _bindEvents() {
     const { el } = this;
 
-    el.pill.addEventListener('click',    () => this.open());
-    el.handle.addEventListener('click',  () => this.close());
+    // Launcher
+    el.launcher.addEventListener('click', () => this.openPanel());
 
-    el.overlay.querySelectorAll('.sw-tab').forEach(tab => {
-      tab.addEventListener('click', () => this._switchTab(tab.dataset.tab));
+    // Panel controls
+    el.edgeHandle.addEventListener('click', () => this.closePanel());
+    el.closeBtn.addEventListener('click',   () => this.closePanel());
+    el.miniBtn.addEventListener('click',    () => this._toggleMini());
+
+    // Mini rail
+    el.railExpand.addEventListener('click',  () => this._exitMini());
+    el.railChat.addEventListener('click',    () => { this._exitMini(); this._switchTab('chat'); });
+    el.railPeople.addEventListener('click',  () => { this._exitMini(); this._switchTab('people'); });
+    el.railRoom.addEventListener('click',    () => { this._exitMini(); this._switchTab('room'); });
+    el.railLeave.addEventListener('click',   () => this._doLeave());
+
+    // Tabs
+    el.root.querySelectorAll('.sw-tab').forEach(t => {
+      t.addEventListener('click', () => this._switchTab(t.dataset.tab));
     });
 
+    // Join
     el.joinBtn.addEventListener('click',   () => this._doJoin());
     el.createBtn.addEventListener('click', () => {
       el.roomInput.value = Math.random().toString(36).substr(2, 6).toUpperCase();
@@ -223,66 +293,95 @@ class SyncWatchUI {
     });
     el.roomInput.addEventListener('keydown', e => { if (e.key === 'Enter') this._doJoin(); });
 
-    el.copyBtn.addEventListener('click',     () => this._copyRoomId());
-    el.roomDisplay.addEventListener('click', () => this._copyRoomId());
-
+    // Room
+    el.copyBtn.addEventListener('click', () => this._copyId());
     el.syncNowBtn.addEventListener('click', () => {
       if (window.SyncOrchestrator) window.SyncOrchestrator.sendSyncNow();
-      this._addSystemMsg('⚡ Synced everyone to your position');
+      this._sysMsg('⚡ Synced everyone to your position');
     });
-
     el.claimBtn.addEventListener('click', () => {
       chrome.runtime.sendMessage({ type: 'to-server', data: { type: 'claim-host' } });
     });
     el.releaseBtn.addEventListener('click', () => {
       chrome.runtime.sendMessage({ type: 'to-server', data: { type: 'release-host' } });
     });
-
     el.leaveBtn.addEventListener('click', () => this._doLeave());
 
+    // Chat
     el.chatInput.addEventListener('keydown', e => {
-      if (e.key === 'Enter') {
-        const msg = el.chatInput.value.trim();
-        if (!msg) return;
-        this._sendChat(msg);
-        el.chatInput.value = '';
-        this._stopTyping();
-      }
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); this._sendChat(); }
     });
     el.chatInput.addEventListener('input', () => this._startTyping());
+    el.sendBtn.addEventListener('click', () => this._sendChat());
 
-    // Reaction buttons
-    el.reactionsBar.querySelectorAll('.sw-react-btn').forEach(btn => {
+    // Reactions
+    el.root.querySelectorAll('.sw-react').forEach(btn => {
       btn.addEventListener('click', () => {
         const emoji = btn.dataset.emoji;
         if (window.SyncOrchestrator) window.SyncOrchestrator.sendReaction(emoji);
-        // Also show it locally immediately
-        this._burstEmoji(emoji, null);
+        this._burst(emoji, null);
       });
+    });
+
+    // Keyboard shortcut: Alt+W to toggle
+    window.addEventListener('keydown', e => {
+      if (e.altKey && e.key === 'w') {
+        this.panelOpen ? this.closePanel() : this.openPanel();
+      }
     });
   }
 
-  // ══════════════════════════════════════════════════════════════════════════
-  // PUBLIC API
-  // ══════════════════════════════════════════════════════════════════════════
-  open()  { this.el.overlay.classList.add('visible');    this.el.pill.style.display = 'none'; }
-  close() { this.el.overlay.classList.remove('visible'); this.el.pill.style.display = 'flex'; }
+  // ══════════════════════════════════════════════════════
+  // PANEL OPEN/CLOSE
+  // ══════════════════════════════════════════════════════
+  openPanel() {
+    this.panelOpen = true;
+    this.miniMode  = false;
+    this.el.root.classList.add('open');
+    this.el.root.classList.remove('mini');
+    this.el.launcher.classList.add('hidden');
+    this.el.chatBadge.classList.remove('show');
+    this._updateToastPos(true);
+  }
 
+  closePanel() {
+    this.panelOpen = false;
+    this.miniMode  = false;
+    this.el.root.classList.remove('open', 'mini');
+    this.el.launcher.classList.remove('hidden');
+    this._updateToastPos(false);
+  }
+
+  _toggleMini() {
+    if (this.miniMode) { this._exitMini(); } else { this._enterMini(); }
+  }
+  _enterMini() {
+    this.miniMode = true;
+    this.el.root.classList.add('mini');
+  }
+  _exitMini() {
+    this.miniMode = false;
+    this.el.root.classList.remove('mini');
+  }
+
+  _updateToastPos(open) {
+    this.el.toasts.classList.toggle('panel-closed', !open);
+  }
+
+  // ══════════════════════════════════════════════════════
+  // PUBLIC API
+  // ══════════════════════════════════════════════════════
   setConnected(connected) {
     this.state.connected = connected;
-    this._renderConnection();
-    if (!connected && this.state.roomId) {
-      this._addSystemMsg('⚡ Connection lost — reconnecting…');
-    }
+    this._renderConn();
+    if (!connected && this.state.roomId) this._sysMsg('⚡ Connection lost — reconnecting…');
   }
 
-  setBuffering(on) {
-    this.el.buffering.classList.toggle('visible', on);
-  }
+  setBuffering(on) { this.el.buf.classList.toggle('show', on); }
 
   showManualSyncPrompt() {
-    this.el.manualBanner.classList.add('visible');
-    setTimeout(() => this.el.manualBanner.classList.remove('visible'), 5000);
+    this.el.manual.classList.add('show');
+    setTimeout(() => this.el.manual.classList.remove('show'), 5000);
   }
 
   handleServerMessage(data) {
@@ -296,29 +395,28 @@ class SyncWatchUI {
       case 'typing-start': this._onTypingStart(data); break;
       case 'typing-stop':  this._onTypingStop(data);  break;
       case 'reaction':     this._onReaction(data);    break;
-      case 'sync-now':     this._onSyncNowReceived(data); break;
-      case 'error':        this._addSystemMsg(`⚠️ ${data.message}`); break;
+      case 'sync-now':     this._onSyncNow(data);     break;
+      case 'error':        this._sysMsg(`⚠ ${data.message}`); break;
     }
   }
 
-  // ══════════════════════════════════════════════════════════════════════════
+  // ══════════════════════════════════════════════════════
   // SERVER HANDLERS
-  // ══════════════════════════════════════════════════════════════════════════
+  // ══════════════════════════════════════════════════════
   _onSyncState(data) {
     this.state.connected    = true;
     this.state.myId         = data.yourId;
     this.state.hostId       = data.hostId;
     this.state.participants = data.participants || [];
     this._renderAll();
-    this._startDriftMeter();
   }
 
   _onUserJoined(data) {
     if (!this.state.participants.find(p => p.id === data.userId)) {
       this.state.participants.push({ id: data.userId, identity: data.identity, isHost: false });
     }
-    this._renderParticipants();
-    this._addSystemMsg(`${data.identity.name} joined`);
+    this._renderPeople();
+    this._sysMsg(`${data.identity.name} joined`);
     this._toast(data.identity, `${data.identity.name} joined the room`);
   }
 
@@ -329,8 +427,8 @@ class SyncWatchUI {
       this.activeTypers.delete(data.identity.name);
       this._renderTyping();
     }
-    this._renderParticipants();
-    if (data.identity) this._addSystemMsg(`${data.identity.name} left`);
+    this._renderPeople();
+    if (data.identity) this._sysMsg(`${data.identity.name} left`);
   }
 
   _onHostChanged(data) {
@@ -338,140 +436,136 @@ class SyncWatchUI {
     this.state.participants = this.state.participants.map(p => ({
       ...p, isHost: p.id === data.hostId,
     }));
-    this._renderParticipants();
+    this._renderPeople();
     this._renderHostControls();
 
     if (data.hostId === this.state.myId) {
       this._toast(null, '👑 You are now the Host');
     } else if (data.identity) {
-      this._toast({ color: '#e8b86d', initial: '👑' }, `${data.identity.name} is now Host`);
+      this._toast({ color: '#f0c060', initial: '👑' }, `${data.identity.name} is now Host`);
     } else {
-      this._addSystemMsg('Host released — anyone can claim');
+      this._sysMsg('Host released — anyone can claim');
     }
   }
 
   _onChatMsg(data) {
     this._onTypingStop(data);
-    this._appendChatMsg(data.identity, data.message, false);
+    this._appendMsg(data.identity, data.message, false);
+    // Badge if panel closed or not on chat tab
+    if (!this.panelOpen || (this.panelOpen && this.activeTab !== 'chat')) {
+      this.el.chatBadge.classList.add('show');
+    }
+    // Peek strip when collapsed
+    if (this.miniMode) this._peekMsg(`${data.identity.name}: ${data.message}`);
   }
 
   _onVideoSync(data) {
     if (!data.identity) return;
-    const actions = { play: '▶ played', pause: '⏸ paused', seek: '⏩ seeked' };
-    const verb = actions[data.event];
-    if (verb) this._addSystemMsg(`${data.identity.name} ${verb} the video`);
+    const verbs = { play: '▶ played', pause: '⏸ paused', seek: '⏩ seeked' };
+    const verb = verbs[data.event];
+    if (verb) {
+      this._sysMsg(`${data.identity.name} ${verb}`);
+      this.state.playing = data.event === 'play' || (data.event !== 'pause' && this.state.playing);
+      this._updatePlayState();
+    }
   }
 
   _onTypingStart(data) {
-    const name = data.identity?.name;
-    if (!name) return;
+    const name = data.identity?.name; if (!name) return;
     clearTimeout(this.activeTypers.get(name));
-    const tid = setTimeout(() => {
-      this.activeTypers.delete(name);
-      this._renderTyping();
-    }, 4000);
-    this.activeTypers.set(name, tid);
+    this.activeTypers.set(name, setTimeout(() => { this.activeTypers.delete(name); this._renderTyping(); }, 4000));
     this._renderTyping();
   }
 
   _onTypingStop(data) {
-    const name = data.identity?.name;
-    if (!name) return;
+    const name = data.identity?.name; if (!name) return;
     clearTimeout(this.activeTypers.get(name));
     this.activeTypers.delete(name);
     this._renderTyping();
   }
 
   _onReaction(data) {
-    this._burstEmoji(data.emoji, data.identity);
-    // Small toast for reactions
+    this._burst(data.emoji, data.identity);
     this._toast(data.identity, `${data.identity.name} reacted ${data.emoji}`);
   }
 
-  _onSyncNowReceived(data) {
-    this._addSystemMsg(`⚡ ${data.identity?.name ?? 'Host'} synced everyone`);
+  _onSyncNow(data) {
+    this._sysMsg(`⚡ ${data.identity?.name ?? 'Host'} synced everyone`);
   }
 
-  // ══════════════════════════════════════════════════════════════════════════
-  // REACTION BURST
-  // ══════════════════════════════════════════════════════════════════════════
-  _burstEmoji(emoji, identity) {
-    const container = this.el.burstContainer;
-    const count = 6 + Math.floor(Math.random() * 5);
-
+  // ══════════════════════════════════════════════════════
+  // EMOJI BURST
+  // ══════════════════════════════════════════════════════
+  _burst(emoji, identity) {
+    const count = 5 + Math.floor(Math.random() * 6);
     for (let i = 0; i < count; i++) {
       const el = document.createElement('div');
-      el.className = 'sw-burst-emoji';
+      el.className = 'sw-emoji-burst';
       el.textContent = emoji;
-
-      const x = 30 + Math.random() * 40; // % from left
-      const vy = 60 + Math.random() * 100; // vertical distance
-      const vx = (Math.random() - 0.5) * 80;
-      const delay = Math.random() * 300;
-      const duration = 1200 + Math.random() * 600;
-      const size = 24 + Math.random() * 20;
-
-      el.style.cssText = `
-        left: ${x}%;
-        bottom: 15%;
-        font-size: ${size}px;
-        animation-delay: ${delay}ms;
-        animation-duration: ${duration}ms;
-        --vx: ${vx}px;
-        --vy: -${vy}px;
-      `;
-      container.appendChild(el);
-      setTimeout(() => el.remove(), delay + duration + 100);
+      const x   = 20 + Math.random() * 60;
+      const ty  = -(60 + Math.random() * 100);
+      const tx  = (Math.random() - 0.5) * 90;
+      const dur = 1100 + Math.random() * 600;
+      const delay = Math.random() * 250;
+      const size  = 20 + Math.random() * 18;
+      el.style.cssText = `left:${x}%;bottom:18%;font-size:${size}px;animation-delay:${delay}ms;--dur:${dur}ms;--tx:${tx}px;--ty:${ty}px;`;
+      this.el.burst.appendChild(el);
+      setTimeout(() => el.remove(), delay + dur + 100);
     }
   }
 
-  // ══════════════════════════════════════════════════════════════════════════
+  // ══════════════════════════════════════════════════════
   // DRIFT METER
-  // ══════════════════════════════════════════════════════════════════════════
-  _startDriftMeter() {
-    clearInterval(this.driftInterval);
-    if (!this.state.roomId || !this.state.hostId || this.state.hostId === this.state.myId) {
-      this.el.driftBar.style.display = 'none';
-      return;
-    }
-
-    // We can only approximate drift from the video event messages
-    // Show the bar but update it on drift events from content.js
-    this.el.driftBar.style.display = 'flex';
-    this._updateDrift(0);
-  }
-
-  _updateDrift(deltaSeconds) {
-    const abs = Math.abs(deltaSeconds);
-    const pct = Math.min(abs / 5, 1); // 0–5 s maps to 0–100%
+  // ══════════════════════════════════════════════════════
+  updateDrift(deltaS) {
+    const abs = Math.abs(deltaS);
+    const pct = Math.min(abs / 5, 1);
     this.el.driftFill.style.width = `${pct * 100}%`;
-
-    if (abs < 0.5) {
-      this.el.driftFill.style.background = 'var(--sw-green)';
-      this.el.driftValue.textContent = '✓';
-      this.el.driftValue.style.color = 'var(--sw-green)';
-    } else if (abs < 2) {
-      this.el.driftFill.style.background = 'var(--sw-accent)';
-      this.el.driftValue.textContent = `${abs.toFixed(1)}s`;
-      this.el.driftValue.style.color = 'var(--sw-accent)';
-    } else {
-      this.el.driftFill.style.background = 'var(--sw-red)';
-      this.el.driftValue.textContent = `${abs.toFixed(1)}s`;
-      this.el.driftValue.style.color = 'var(--sw-red)';
-    }
+    const [color, val] = abs < 0.5 ? ['var(--c-green)', '✓'] :
+                         abs < 2   ? ['var(--c-amber)', `${abs.toFixed(1)}s`] :
+                                     ['var(--c-red)',   `${abs.toFixed(1)}s`];
+    this.el.driftFill.style.background = color;
+    this.el.driftVal.style.color = color;
+    this.el.driftVal.textContent = val;
   }
 
-  // ══════════════════════════════════════════════════════════════════════════
+  // ══════════════════════════════════════════════════════
+  // LIVE TIME DISPLAY
+  // ══════════════════════════════════════════════════════
+  _startTimeUpdater() {
+    clearInterval(this._timeInterval);
+    this._timeInterval = setInterval(() => {
+      if (!this.state.roomId || !window.SyncOrchestrator) return;
+      const t   = window.SyncOrchestrator.getCurrentTime?.() ?? 0;
+      const m   = Math.floor(t / 60);
+      const s   = Math.floor(t % 60).toString().padStart(2, '0');
+      const hr  = m >= 60 ? `${Math.floor(m/60)}:${(m%60).toString().padStart(2,'0')}:` : '';
+      const min = (m % 60).toString().padStart(2, '0');
+      this.el.timeDisplay.textContent = `${hr}${min}:${s}`;
+      const paused = window.SyncOrchestrator.isPaused?.() ?? true;
+      this.state.playing = !paused;
+      this._updatePlayState();
+    }, 500);
+  }
+
+  _updatePlayState() {
+    const { playing } = this.state;
+    this.el.playState.textContent = playing ? 'Playing' : 'Paused';
+    this.el.playState.className = `sw-play-state ${playing ? 'playing' : 'paused'}`;
+  }
+
+  // ══════════════════════════════════════════════════════
   // ROOM ACTIONS
-  // ══════════════════════════════════════════════════════════════════════════
+  // ══════════════════════════════════════════════════════
   _doJoin() {
-    const roomId = this.el.roomInput.value.trim().toLowerCase();
+    const roomId = this.el.roomInput.value.trim().toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 32);
     if (!roomId) { this.el.roomInput.focus(); return; }
     this.state.roomId = roomId;
     this._switchToRoom();
     if (window.SyncOrchestrator) window.SyncOrchestrator.setRoom(roomId);
     if (window.SyncOrchestrator?.isDRM?.()) {
-      this.el.drmNotice.style.display = 'block';
+      this.el.drm.textContent = '⚠️ DRM content detected — manual sync mode. Coordinate play/pause with your group.';
+      this.el.drm.style.display = 'block';
     }
   }
 
@@ -479,35 +573,36 @@ class SyncWatchUI {
     this.state.roomId       = null;
     this.state.hostId       = null;
     this.state.participants = [];
-    this.el.chatMessages.innerHTML = '';
+    this.el.messages.innerHTML = '';
     this.activeTypers.clear();
     this._renderTyping();
-    clearInterval(this.driftInterval);
-    this.el.driftBar.style.display = 'none';
+    this.el.drift.classList.remove('visible');
+    this.el.drm.style.display = 'none';
     this._switchToJoin();
     if (window.SyncOrchestrator) window.SyncOrchestrator.setRoom(null);
-    this.el.drmNotice.style.display = 'none';
   }
 
-  _sendChat(message) {
+  _sendChat() {
+    const msg = this.el.chatInput.value.trim();
+    if (!msg) return;
     const me = this.state.participants.find(p => p.id === this.state.myId);
-    const identity = me?.identity ?? { name: 'You', color: '#e8b86d', initial: 'Y' };
-    this._appendChatMsg(identity, message, true);
-    chrome.runtime.sendMessage({ type: 'to-server', data: { type: 'chat-message', message } });
+    const identity = me?.identity ?? { name: 'You', color: '#5b6ef5', initial: 'Y' };
+    this._appendMsg(identity, msg, true);
+    chrome.runtime.sendMessage({ type: 'to-server', data: { type: 'chat-message', message: msg } });
+    this.el.chatInput.value = '';
+    this._stopTyping();
   }
 
-  _copyRoomId() {
-    const id = this.state.roomId;
-    if (!id) return;
-    navigator.clipboard.writeText(id).then(() => {
-      this.el.copyBtn.textContent = '✅';
-      setTimeout(() => { this.el.copyBtn.textContent = '📋'; }, 2000);
+  _copyId() {
+    navigator.clipboard.writeText(this.state.roomId ?? '').then(() => {
+      this.el.copyBtn.textContent = 'Copied!';
+      setTimeout(() => { this.el.copyBtn.textContent = 'Copy'; }, 2000);
     });
   }
 
-  // ══════════════════════════════════════════════════════════════════════════
+  // ══════════════════════════════════════════════════════
   // TYPING
-  // ══════════════════════════════════════════════════════════════════════════
+  // ══════════════════════════════════════════════════════
   _startTyping() {
     if (!this.typingTimeout) {
       chrome.runtime.sendMessage({ type: 'to-server', data: { type: 'typing-start' } });
@@ -524,146 +619,162 @@ class SyncWatchUI {
 
   _renderTyping() {
     const names = Array.from(this.activeTypers.keys());
-    if (!names.length) { this.el.typingEl.textContent = ''; return; }
+    if (!names.length) { this.el.typing.textContent = ''; return; }
     const str  = names.slice(0, 2).join(', ');
     const more = names.length > 2 ? ' +more' : '';
-    const verb = names.length > 1 ? 'are' : 'is';
-    this.el.typingEl.textContent = `${str}${more} ${verb} typing…`;
+    this.el.typing.textContent = `${str}${more} ${names.length > 1 ? 'are' : 'is'} typing…`;
   }
 
-  // ══════════════════════════════════════════════════════════════════════════
+  // ══════════════════════════════════════════════════════
   // RENDER
-  // ══════════════════════════════════════════════════════════════════════════
+  // ══════════════════════════════════════════════════════
   _renderAll() {
-    this._renderConnection();
-    if (this.state.roomId) {
-      this._switchToRoom();
-    } else {
-      this._switchToJoin();
-    }
-    this._renderParticipants();
+    this._renderConn();
+    if (this.state.roomId) { this._switchToRoom(); } else { this._switchToJoin(); }
+    this._renderPeople();
     this._renderHostControls();
   }
 
-  _renderConnection() {
+  _renderConn() {
     const on = this.state.connected;
-    this.el.statusDot.classList.toggle('on', on);
-    this.el.statusText.textContent = on ? 'Connected' : 'Offline';
-    this.el.pillDot.classList.toggle('connected', on);
+    this.el.dot.classList.toggle('on', on);
+    this.el.connText.textContent = on ? 'Connected' : 'Offline';
+    this.el.pip.classList.toggle('on', on);
   }
 
   _switchToJoin() {
     this.state.view = 'join';
-    this.el.tabs.style.display     = 'none';
-    this._showPane('join-view');
-    this.el.hostChip.style.display = 'none';
+    this.el.tabs.classList.remove('visible');
+    this._showPane('join');
+    this.el.hostBadge.style.display = 'none';
+    this.el.videoBlock.style.display = 'none';
   }
 
   _switchToRoom() {
     this.state.view = 'room';
-    this.el.tabs.style.display    = 'flex';
-    this.el.roomDisplay.value     = this.state.roomId;
+    this.el.tabs.classList.add('visible');
+    this.el.roomVal.textContent = (this.state.roomId ?? '').toUpperCase();
+    this.el.videoBlock.style.display = 'block';
     this._switchTab(this.activeTab);
   }
 
   _showPane(id) {
-    ['join-view','pane-chat','pane-participants','pane-controls'].forEach(p => {
-      document.getElementById(`sw-${p}`)?.classList.remove('active');
+    ['join','chat','people','room'].forEach(p => {
+      this.el[`pane${p.charAt(0).toUpperCase()+p.slice(1)}`]?.classList.remove('active');
     });
-    document.getElementById(`sw-${id}`)?.classList.add('active');
+    this.el[`pane${id.charAt(0).toUpperCase()+id.slice(1)}`]?.classList.add('active');
   }
 
   _switchTab(tab) {
     if (this.state.view !== 'room') return;
     this.activeTab = tab;
-    this.el.overlay.querySelectorAll('.sw-tab').forEach(t => {
-      t.classList.toggle('active', t.dataset.tab === tab);
-    });
-    const map = { chat: 'pane-chat', participants: 'pane-participants', controls: 'pane-controls' };
-    this._showPane(map[tab] ?? 'pane-chat');
+    if (tab === 'chat') this.el.chatBadge.classList.remove('show');
+    this.el.root.querySelectorAll('.sw-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
+    this._showPane(tab);
   }
 
-  _renderParticipants() {
-    const list = this.el.participantsList;
-    list.innerHTML = '';
+  _renderPeople() {
+    this.el.people.innerHTML = '';
     for (const p of this.state.participants) {
       const isMe   = p.id === this.state.myId;
       const isHost = p.id === this.state.hostId;
-      const el = document.createElement('div');
-      el.className = 'sw-participant';
-      el.innerHTML = `
-        <div class="sw-p-avatar" style="background:${p.identity.color}">${p.identity.initial}</div>
-        <div class="sw-p-info">
-          <div class="sw-p-name" style="color:${p.identity.color}">
-            ${this._escapeHtml(p.identity.name)}${isMe ? ' <span class="sw-you-badge">you</span>' : ''}
+      const div = document.createElement('div');
+      div.className = 'sw-person';
+      div.innerHTML = `
+        <div class="sw-person-av" style="background:${p.identity.color}20;border:1.5px solid ${p.identity.color}40;color:${p.identity.color}">
+          ${p.identity.initial}
+        </div>
+        <div class="sw-person-info">
+          <div class="sw-person-name" style="color:${p.identity.color}">
+            ${this._esc(p.identity.name)}
+            ${isMe ? '<span class="sw-you-tag">you</span>' : ''}
           </div>
-          <div class="sw-p-role">${isHost ? '👑 Host' : 'Viewer'}</div>
+          <div class="sw-person-role">${isHost ? '👑 Host' : '• Viewer'}</div>
         </div>
       `;
-      list.appendChild(el);
+      this.el.people.appendChild(div);
     }
   }
 
   _renderHostControls() {
     const isHost = this.state.hostId === this.state.myId;
     const noHost = !this.state.hostId;
-    this.el.hostChip.style.display   = isHost ? 'inline-block' : 'none';
+    this.el.hostBadge.style.display  = isHost ? 'inline-block' : 'none';
     this.el.syncNowBtn.style.display  = isHost ? 'block'        : 'none';
-    this.el.claimBtn.style.display    = noHost ? 'block'        : 'none';
-    this.el.releaseBtn.style.display  = isHost ? 'block'        : 'none';
-    // restart drift meter if host status changed
-    this._startDriftMeter();
+    this.el.claimBtn.style.display    = (!isHost && noHost) ? 'block' : 'none';
+    this.el.releaseBtn.style.display  = isHost ? 'block' : 'none';
+
+    // Drift bar: show if non-host in room
+    const showDrift = !!this.state.roomId && !!this.state.hostId && !isHost;
+    this.el.drift.classList.toggle('visible', showDrift);
   }
 
-  // ══════════════════════════════════════════════════════════════════════════
-  // CHAT
-  // ══════════════════════════════════════════════════════════════════════════
-  _appendChatMsg(identity, text, isOwn) {
-    const el = document.createElement('div');
-    el.className = `sw-msg${isOwn ? ' own' : ''}`;
-    el.innerHTML = `
-      <div class="sw-msg-avatar" style="background:${identity.color}">${identity.initial}</div>
+  // ══════════════════════════════════════════════════════
+  // MESSAGES
+  // ══════════════════════════════════════════════════════
+  _appendMsg(identity, text, isOwn) {
+    const div = document.createElement('div');
+    div.className = `sw-msg${isOwn ? ' own' : ''}`;
+    div.innerHTML = `
+      <div class="sw-avatar" style="background:${identity.color}20;border:1.5px solid ${identity.color}40;color:${identity.color}">${identity.initial}</div>
       <div class="sw-msg-body">
-        <div class="sw-msg-name" style="color:${identity.color}">${this._escapeHtml(identity.name)}</div>
-        <div class="sw-msg-bubble">${this._escapeHtml(text)}</div>
+        <div class="sw-msg-name" style="color:${identity.color}">${this._esc(identity.name)}</div>
+        <div class="sw-bubble">${this._esc(text)}</div>
       </div>
     `;
-    this.el.chatMessages.appendChild(el);
-    this.el.chatMessages.scrollTop = this.el.chatMessages.scrollHeight;
+    this.el.messages.appendChild(div);
+    this.el.messages.scrollTop = this.el.messages.scrollHeight;
   }
 
-  _addSystemMsg(text) {
-    const el = document.createElement('div');
-    el.className = 'sw-system-msg';
-    el.textContent = text;
-    this.el.chatMessages.appendChild(el);
-    this.el.chatMessages.scrollTop = this.el.chatMessages.scrollHeight;
+  _sysMsg(text) {
+    const div = document.createElement('div');
+    div.className = 'sw-sys-msg';
+    div.textContent = text;
+    this.el.messages.appendChild(div);
+    this.el.messages.scrollTop = this.el.messages.scrollHeight;
   }
 
-  _escapeHtml(str) {
+  // ══════════════════════════════════════════════════════
+  // TOASTS
+  // ══════════════════════════════════════════════════════
+  _toast(identity, text) {
+    const div = document.createElement('div');
+    div.className = 'sw-toast';
+    if (identity) {
+      div.innerHTML = `<div class="sw-toast-av" style="background:${identity.color}30;color:${identity.color}">${identity.initial}</div>${this._esc(text)}`;
+    } else {
+      div.textContent = text;
+    }
+    this.el.toasts.appendChild(div);
+    setTimeout(() => div.remove(), 4500);
+  }
+
+  // ══════════════════════════════════════════════════════
+  // PEEK STRIP (mini mode)
+  // ══════════════════════════════════════════════════════
+  _peekMsg(text) {
+    const div = document.createElement('div');
+    div.className = 'sw-peek-msg';
+    div.textContent = text.slice(0, 36) + (text.length > 36 ? '…' : '');
+    this.el.peek.appendChild(div);
+    this.el.peek.classList.add('show');
+    this.peekMsgs.push(div);
+    if (this.peekMsgs.length > 3) {
+      this.peekMsgs.shift().remove();
+    }
+    clearTimeout(this._peekTimeout);
+    this._peekTimeout = setTimeout(() => { this.el.peek.classList.remove('show'); }, 3500);
+  }
+
+  // ══════════════════════════════════════════════════════
+  // UTILS
+  // ══════════════════════════════════════════════════════
+  _esc(str) {
     return String(str)
       .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
       .replace(/"/g,'&quot;').replace(/'/g,'&#039;');
   }
 
-  // ══════════════════════════════════════════════════════════════════════════
-  // TOASTS
-  // ══════════════════════════════════════════════════════════════════════════
-  _toast(identity, text) {
-    const el = document.createElement('div');
-    el.className = 'sw-toast';
-    if (identity) {
-      el.innerHTML = `<div class="sw-toast-avatar" style="background:${identity.color}">${identity.initial}</div>${this._escapeHtml(text)}`;
-    } else {
-      el.textContent = text;
-    }
-    this.el.toastContainer.appendChild(el);
-    setTimeout(() => el.remove(), 4200);
-  }
-
-  // ══════════════════════════════════════════════════════════════════════════
-  // STATUS CHECK
-  // ══════════════════════════════════════════════════════════════════════════
   _syncStatus() {
     chrome.runtime.sendMessage({ type: 'get-status' }, (res) => {
       if (chrome.runtime.lastError) return;

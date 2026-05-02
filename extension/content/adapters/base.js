@@ -1,22 +1,19 @@
 /**
  * BaseAdapter — abstract class every site adapter extends.
- * Handles the "isSyncing" guard that prevents echo loops,
- * smart seek thresholds, and observer-based video discovery.
  */
 class BaseAdapter {
   constructor() {
-    this.video         = null;
-    this.callbacks     = {};
-    this.isSyncing     = false;
+    this.video          = null;
+    this.callbacks      = {};
+    this.isSyncing      = false;
     this.controlsLocked = false;
-    this._syncTimer    = null;
-    this._listeners    = []; // track bound listeners for cleanup
+    this._syncTimer     = null;
+    this._listeners     = [];
+    this._driftInterval = null;
   }
 
-  // Subclasses must implement:
   findVideo() { throw new Error('BaseAdapter.findVideo() not implemented'); }
 
-  // ── Public API ──────────────────────────────────────────────────────────────
   init(callbacks) {
     this.callbacks = callbacks;
     this.findVideo();
@@ -39,22 +36,22 @@ class BaseAdapter {
 
   seek(time) {
     if (!this.video) return;
-    // Only seek if delta is meaningful (>0.5 s to avoid micro-corrections)
     if (Math.abs(this.video.currentTime - time) < 0.5) return;
     this._withSync(() => { this.video.currentTime = time; });
   }
 
   getCurrentTime() { return this.video?.currentTime ?? 0; }
   isPaused()       { return this.video?.paused       ?? true; }
+  getDuration()    { return this.video?.duration     ?? 0; }
 
   lockControls(locked) { this.controlsLocked = locked; }
 
   destroy() {
     for (const [el, evt, fn] of this._listeners) el.removeEventListener(evt, fn);
     this._listeners = [];
+    if (this._driftInterval) clearInterval(this._driftInterval);
   }
 
-  // ── Private ─────────────────────────────────────────────────────────────────
   _on(el, event, fn) {
     el.addEventListener(event, fn);
     this._listeners.push([el, event, fn]);
@@ -77,7 +74,6 @@ class BaseAdapter {
     this._on(v, 'waiting', () => { if (!this.isSyncing) this.callbacks.onWaiting?.(v.currentTime); });
     this._on(v, 'playing', () => { if (!this.isSyncing) this.callbacks.onPlaying?.(v.currentTime); });
 
-    // Periodic drift check: if playing, report time every 5 s so latecomers sync
     this._driftInterval = setInterval(() => {
       if (this.video && !this.video.paused && !this.isSyncing) {
         this.callbacks.onDrift?.(v.currentTime);
@@ -94,8 +90,6 @@ class BaseAdapter {
       }
     });
     obs.observe(document.documentElement, { childList: true, subtree: true });
-
-    // Give up after 60 s
     setTimeout(() => obs.disconnect(), 60000);
   }
 }

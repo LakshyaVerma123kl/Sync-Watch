@@ -1,7 +1,6 @@
 /**
- * SyncWatch Content Script v2.1
+ * SyncWatch Content Script v3.0
  * Orchestrates adapter + UI + server messages.
- * Bug fixes: seek no longer forces pause; seek+play handled correctly.
  */
 
 let activeAdapter = null;
@@ -10,26 +9,26 @@ let myId          = null;
 let hostId        = null;
 let isDRM         = false;
 
-// ── Adapter Initialisation ────────────────────────────────────────────────────
+// ── Adapter Init ──────────────────────────────────────────────────────────────
 function initAdapter() {
   const h = window.location.hostname;
 
-  if (h.includes('netflix.com') || h.includes('primevideo.com') || h.includes('disneyplus.com')) {
+  if (h.includes('netflix.com') || h.includes('primevideo.com') || h.includes('disneyplus.com') || h.includes('hulu.com') || h.includes('max.com') || h.includes('peacocktv.com') || h.includes('paramountplus.com') || h.includes('appletvplus.com') || h.includes('apple.com/apple-tv-plus')) {
     activeAdapter = new window.NetflixAdapter();
     isDRM = true;
-  } else if (h.includes('youtube.com')) {
+  } else if (h.includes('youtube.com') || h.includes('youtu.be')) {
     activeAdapter = new window.YouTubeAdapter();
   } else {
     activeAdapter = new window.GenericAdapter();
   }
 
   activeAdapter.init({
-    onPlay:         (t) => sendEvent('play',                t),
-    onPause:        (t) => sendEvent('pause',               t),
-    onSeek:         (t) => sendEvent('seek',                t),
-    onWaiting:      (t) => sendEvent('waiting',             t),
-    onPlaying:      (t) => sendEvent('buffering-recovered', t),
-    onDrift:        (t) => sendEvent('drift',               t),
+    onPlay:         (t) => sendEvent('play',               t),
+    onPause:        (t) => sendEvent('pause',              t),
+    onSeek:         (t) => sendEvent('seek',               t),
+    onWaiting:      (t) => sendEvent('waiting',            t),
+    onPlaying:      (t) => sendEvent('buffering-recovered',t),
+    onDrift:        (t) => sendEvent('drift',              t),
     onManualAction: (action, t) => {
       if (window.SyncUI) window.SyncUI.showManualSyncPrompt(action, t);
     },
@@ -45,30 +44,6 @@ function sendEvent(event, time) {
   });
 }
 
-function sendReaction(emoji) {
-  if (!currentRoom) return;
-  chrome.runtime.sendMessage({
-    type: 'to-server',
-    data: { type: 'reaction', emoji },
-  });
-}
-
-function sendSyncNow() {
-  if (!currentRoom) return;
-  // Also update the server with current time before broadcasting
-  if (activeAdapter) {
-    const time = activeAdapter.getCurrentTime();
-    chrome.runtime.sendMessage({
-      type: 'to-server',
-      data: { type: 'video-event', event: activeAdapter.isPaused() ? 'pause' : 'play', time },
-    });
-  }
-  chrome.runtime.sendMessage({
-    type: 'to-server',
-    data: { type: 'sync-now' },
-  });
-}
-
 // ── Message Listener ──────────────────────────────────────────────────────────
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message.type === 'connection-status') {
@@ -77,7 +52,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 
   if (message.type === 'open-sidebar') {
-    if (window.SyncUI) window.SyncUI.open();
+    if (window.SyncUI) window.SyncUI.openPanel();
     sendResponse({ success: true });
     return true;
   }
@@ -102,43 +77,33 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       activeAdapter.pause();
 
     } else if (event === 'seek') {
-      // ── FIX: after seeking, respect the host's current playing state ────────
       if (time !== undefined) activeAdapter.seek(time);
-      if (playing === true) {
-        activeAdapter.play();
-      } else if (playing === false) {
-        activeAdapter.pause();
-      }
-      // If playing is undefined (old server), don't change play state
+      if (playing === true)        activeAdapter.play();
+      else if (playing === false)  activeAdapter.pause();
 
     } else if (event === 'drift') {
-      if (time !== undefined && Math.abs(activeAdapter.getCurrentTime() - time) > 2) {
-        activeAdapter.seek(time);
+      if (time !== undefined) {
+        const delta = activeAdapter.getCurrentTime() - time;
+        if (window.SyncUI) window.SyncUI.updateDrift(delta);
+        if (Math.abs(delta) > 2) activeAdapter.seek(time);
       }
     }
   }
 
-  // ── sync-now: hard snap to host position ───────────────────────────────────
+  // ── sync-now ────────────────────────────────────────────────────────────────
   if (data.type === 'sync-now' && activeAdapter && !isDRM) {
     if (data.time !== undefined) activeAdapter.seek(data.time);
-    if (data.playing) {
-      activeAdapter.play();
-    } else {
-      activeAdapter.pause();
-    }
+    if (data.playing) activeAdapter.play(); else activeAdapter.pause();
   }
 
   // ── Initial sync on join ────────────────────────────────────────────────────
-  if (data.type === 'sync-state' && activeAdapter && !isDRM) {
+  if (data.type === 'sync-state') {
     myId   = data.yourId;
     hostId = data.hostId;
     _updateLock();
-
-    if (data.state.time > 0) activeAdapter.seek(data.state.time);
-    if (data.state.playing) {
-      activeAdapter.play();
-    } else {
-      activeAdapter.pause();
+    if (activeAdapter && !isDRM) {
+      if (data.state.time > 0) activeAdapter.seek(data.state.time);
+      if (data.state.playing) activeAdapter.play(); else activeAdapter.pause();
     }
   }
 
@@ -164,10 +129,24 @@ window.SyncOrchestrator = {
       chrome.runtime.sendMessage({ type: 'to-server', data: { type: 'leave-room' } });
     }
   },
-  isDRM:       () => isDRM,
-  sendReaction: (emoji) => sendReaction(emoji),
-  sendSyncNow:  () => sendSyncNow(),
+  isDRM:          () => isDRM,
+  sendReaction:   (emoji) => {
+    if (!currentRoom) return;
+    chrome.runtime.sendMessage({ type: 'to-server', data: { type: 'reaction', emoji } });
+  },
+  sendSyncNow:    () => {
+    if (!currentRoom) return;
+    if (activeAdapter) {
+      const time = activeAdapter.getCurrentTime();
+      chrome.runtime.sendMessage({
+        type: 'to-server',
+        data: { type: 'video-event', event: activeAdapter.isPaused() ? 'pause' : 'play', time },
+      });
+    }
+    chrome.runtime.sendMessage({ type: 'to-server', data: { type: 'sync-now' } });
+  },
   getCurrentTime: () => activeAdapter?.getCurrentTime() ?? 0,
+  isPaused:       () => activeAdapter?.isPaused() ?? true,
 };
 
 // ── Boot ──────────────────────────────────────────────────────────────────────

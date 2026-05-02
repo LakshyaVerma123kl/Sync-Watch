@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "SyncWatch",
-  "version": "2.0.0",
-  "description": "Watch videos in perfect sync with friends — anywhere on the web.",
+  "version": "3.0.0",
+  "description": "Watch any video in perfect sync with friends — YouTube, Netflix, Prime, Disney+ and more.",
   "permissions": [
     "activeTab",
     "storage",
@@ -44,7 +44,7 @@
   "web_accessible_resources": [
     {
       "resources": ["icons/*"],
-      "matches":   ["<all_urls>"]
+      "matches": ["<all_urls>"]
     }
   ]
 }

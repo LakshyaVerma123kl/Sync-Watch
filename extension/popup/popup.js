@@ -1,24 +1,21 @@
-const dot      = document.getElementById('status-dot');
-const text     = document.getElementById('status-text');
+const dot      = document.getElementById('dot');
+const statusTx = document.getElementById('status-text');
 const roomInfo = document.getElementById('room-info');
-const roomDisp = document.getElementById('room-id-display');
+const roomId   = document.getElementById('room-id');
 
 function updateStatus(res) {
-  if (!res) { text.textContent = 'Extension error'; return; }
-
+  if (!res) { statusTx.textContent = 'Extension error'; return; }
   const on = res.connected;
   dot.classList.toggle('on', on);
-  text.textContent = on ? 'Connected to server' : 'Server offline';
-
+  statusTx.textContent = on ? 'Connected to server' : 'Server offline';
   if (res.room) {
-    roomInfo.classList.add('visible');
-    roomDisp.textContent = res.room;
+    roomInfo.classList.add('show');
+    roomId.textContent = res.room.toUpperCase();
   } else {
-    roomInfo.classList.remove('visible');
+    roomInfo.classList.remove('show');
   }
 }
 
-// Poll status
 chrome.runtime.sendMessage({ type: 'get-status' }, updateStatus);
 
 document.getElementById('open-btn').addEventListener('click', () => {
