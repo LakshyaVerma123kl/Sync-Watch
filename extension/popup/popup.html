@@ -1,175 +1,412 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>SyncWatch</title>
-  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <style>
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
-      width: 280px;
-      background: #080810;
-      color: #eeeef5;
-      font-family: 'Space Grotesk', sans-serif;
-      overflow: hidden;
-    }
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>SyncWatch</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Unbounded:wght@400;700;900&family=DM+Sans:wght@300;400;500;600&family=JetBrains+Mono:wght@500;600&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      *,
+      *::before,
+      *::after {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+        -webkit-font-smoothing: antialiased;
+      }
 
-    .wrap {
-      padding: 20px;
-      display: flex;
-      flex-direction: column;
-      gap: 16px;
-    }
+      :root {
+        --base: #000;
+        --bg: #05050a;
+        --s1: #0c0c14;
+        --s2: #111120;
+        --s3: #171728;
+        --b1: rgba(255, 255, 255, 0.05);
+        --b2: rgba(255, 255, 255, 0.1);
+        --b3: rgba(255, 255, 255, 0.16);
+        --p: #818cf8;
+        --pd: #6366f1;
+        --pdim: rgba(129, 140, 248, 0.1);
+        --pglow: rgba(129, 140, 248, 0.25);
+        --g: #34d399;
+        --r: #f43f5e;
+        --gold: #fbbf24;
+        --t1: #f0f0ff;
+        --t2: #9090b8;
+        --t3: #44445a;
+        --font: "DM Sans", sans-serif;
+        --disp: "Unbounded", sans-serif;
+        --mono: "JetBrains Mono", monospace;
+      }
 
-    /* Top shimmer */
-    .wrap::before {
-      content: '';
-      position: absolute;
-      top: 0; left: 0; right: 0;
-      height: 1px;
-      background: linear-gradient(90deg, transparent, #5b6ef5, #8b5cf6, transparent);
-      opacity: 0.7;
-    }
+      body {
+        width: 290px;
+        background: var(--bg);
+        color: var(--t1);
+        font-family: var(--font);
+        overflow: hidden;
+        position: relative;
+      }
 
-    .logo-area {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-    }
-    .logo-mark {
-      width: 44px; height: 44px;
-      background: linear-gradient(135deg, #5b6ef5, #6d28d9);
-      border-radius: 13px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 22px;
-      box-shadow: 0 0 20px rgba(91,110,245,0.4);
-      flex-shrink: 0;
-    }
-    .logo-text { display: flex; flex-direction: column; }
-    .logo-name { font-size: 18px; font-weight: 700; color: #eeeef5; letter-spacing: -0.3px; }
-    .logo-sub  { font-size: 11px; color: #8888aa; margin-top: 1px; }
+      /* Gradient mesh */
+      body::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background:
+          radial-gradient(
+            ellipse 80% 50% at 50% -20%,
+            rgba(99, 102, 241, 0.12) 0%,
+            transparent 70%
+          ),
+          radial-gradient(
+            ellipse 50% 40% at 100% 80%,
+            rgba(168, 85, 247, 0.07) 0%,
+            transparent 60%
+          );
+        pointer-events: none;
+      }
 
-    .status-pill {
-      display: flex;
-      align-items: center;
-      gap: 7px;
-      background: #0f0f1a;
-      border: 1px solid rgba(255,255,255,0.08);
-      border-radius: 100px;
-      padding: 8px 13px;
-      font-size: 12px;
-      color: #8888aa;
-    }
-    .dot {
-      width: 7px; height: 7px;
-      border-radius: 50%;
-      background: #ff4d6a;
-      box-shadow: 0 0 6px #ff4d6a;
-      transition: all 0.4s;
-    }
-    .dot.on { background: #22d46a; box-shadow: 0 0 8px #22d46a; }
+      /* Top chromatic line */
+      body::after {
+        content: "";
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 1px;
+        background: linear-gradient(
+          90deg,
+          transparent 0%,
+          rgba(129, 140, 248, 0.7) 30%,
+          rgba(251, 113, 133, 0.5) 60%,
+          transparent 100%
+        );
+      }
 
-    .room-info {
-      display: none;
-      background: #0f0f1a;
-      border: 1px solid rgba(91,110,245,0.2);
-      border-radius: 10px;
-      padding: 11px 13px;
-      font-size: 12px;
-      color: #8888aa;
-    }
-    .room-info.show { display: block; }
-    .room-id {
-      font-family: 'Courier New', monospace;
-      font-size: 15px;
-      color: #5b6ef5;
-      letter-spacing: 2px;
-      text-transform: uppercase;
-      margin-top: 4px;
-      font-weight: 600;
-    }
+      .wrap {
+        padding: 20px 18px 18px;
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+        position: relative;
+        z-index: 1;
+      }
 
-    .btn {
-      width: 100%;
-      padding: 12px;
-      border-radius: 10px;
-      border: none;
-      font-family: 'Space Grotesk', sans-serif;
-      font-size: 13px;
-      font-weight: 600;
-      cursor: pointer;
-      transition: all 0.18s;
-    }
-    .btn:active { transform: scale(0.97); }
-    .btn-primary {
-      background: linear-gradient(135deg, #5b6ef5, #6d28d9);
-      color: #fff;
-      box-shadow: 0 4px 16px rgba(91,110,245,0.3);
-    }
-    .btn-primary:hover { filter: brightness(1.1); box-shadow: 0 6px 20px rgba(91,110,245,0.45); }
+      /* Logo */
+      .logo-area {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+      .logo-mark {
+        width: 46px;
+        height: 46px;
+        background: linear-gradient(135deg, var(--pd), #7c3aed);
+        border-radius: 14px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 22px;
+        box-shadow:
+          0 4px 20px rgba(99, 102, 241, 0.4),
+          inset 0 1px 0 rgba(255, 255, 255, 0.2);
+        flex-shrink: 0;
+        position: relative;
+        overflow: hidden;
+      }
+      .logo-mark::after {
+        content: "";
+        position: absolute;
+        top: 0;
+        left: -100%;
+        width: 60%;
+        height: 100%;
+        background: linear-gradient(
+          90deg,
+          transparent,
+          rgba(255, 255, 255, 0.2),
+          transparent
+        );
+        transform: skewX(-20deg);
+        animation: shimmer 3s ease-in-out infinite;
+      }
+      @keyframes shimmer {
+        0% {
+          left: -100%;
+        }
+        60% {
+          left: 150%;
+        }
+        100% {
+          left: 150%;
+        }
+      }
 
-    .links {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 20px;
-      font-size: 11px;
-    }
-    .links a {
-      color: #44445a;
-      text-decoration: none;
-      transition: color 0.2s;
-    }
-    .links a:hover { color: #8888aa; }
+      .logo-text {
+        display: flex;
+        flex-direction: column;
+      }
+      .logo-name {
+        font-family: var(--disp);
+        font-size: 15px;
+        font-weight: 700;
+        color: var(--t1);
+        letter-spacing: -0.3px;
+      }
+      .logo-sub {
+        font-size: 10px;
+        color: var(--t3);
+        margin-top: 2px;
+        font-weight: 400;
+      }
 
-    .shortcut-hint {
-      text-align: center;
-      font-size: 10px;
-      color: #44445a;
-    }
-    kbd {
-      background: #161625;
-      border: 1px solid rgba(255,255,255,0.08);
-      border-radius: 4px;
-      padding: 1px 5px;
-      font-size: 10px;
-      font-family: monospace;
-      color: #8888aa;
-    }
-  </style>
-</head>
-<body>
-  <div class="wrap">
-    <div class="logo-area">
-      <div class="logo-mark">🎬</div>
-      <div class="logo-text">
-        <div class="logo-name">SyncWatch</div>
-        <div class="logo-sub">Watch together, in perfect sync</div>
+      /* Status */
+      .status-bar {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        background: var(--s1);
+        border: 1px solid var(--b2);
+        border-radius: 10px;
+        padding: 10px 13px;
+        font-size: 12px;
+        color: var(--t2);
+        font-weight: 500;
+      }
+      .dot {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: var(--r);
+        box-shadow: 0 0 7px var(--r);
+        transition: all 0.5s;
+        flex-shrink: 0;
+      }
+      .dot.on {
+        background: var(--g);
+        box-shadow:
+          0 0 8px var(--g),
+          0 0 14px rgba(52, 211, 153, 0.3);
+        animation: pulse 2s ease-in-out infinite;
+      }
+      @keyframes pulse {
+        0%,
+        100% {
+          box-shadow: 0 0 8px var(--g);
+        }
+        50% {
+          box-shadow:
+            0 0 14px var(--g),
+            0 0 24px rgba(52, 211, 153, 0.4);
+        }
+      }
+      #status-text {
+        flex: 1;
+      }
+      .status-bar-right {
+        margin-left: auto;
+      }
+
+      /* Room info */
+      .room-info {
+        display: none;
+        background: var(--s1);
+        border: 1px solid rgba(129, 140, 248, 0.2);
+        border-radius: 10px;
+        padding: 12px 14px;
+        position: relative;
+        overflow: hidden;
+      }
+      .room-info::before {
+        content: "";
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 1px;
+        background: linear-gradient(90deg, transparent, var(--pd), transparent);
+        opacity: 0.4;
+      }
+      .room-info.show {
+        display: block;
+      }
+      .room-info-label {
+        font-family: var(--disp);
+        font-size: 8px;
+        font-weight: 700;
+        letter-spacing: 1.2px;
+        text-transform: uppercase;
+        color: var(--t3);
+        margin-bottom: 6px;
+      }
+      .room-id {
+        font-family: var(--mono);
+        font-size: 16px;
+        font-weight: 600;
+        color: var(--p);
+        letter-spacing: 3px;
+        text-transform: uppercase;
+      }
+      .room-members {
+        font-size: 11px;
+        color: var(--t3);
+        margin-top: 4px;
+      }
+
+      /* Buttons */
+      .btn {
+        width: 100%;
+        padding: 12px;
+        border-radius: 10px;
+        border: none;
+        font-family: var(--disp);
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.5px;
+        text-transform: uppercase;
+        cursor: pointer;
+        transition: all 0.2s cubic-bezier(0.22, 1, 0.36, 1);
+        position: relative;
+        overflow: hidden;
+      }
+      .btn::after {
+        content: "";
+        position: absolute;
+        top: 0;
+        left: -100%;
+        width: 50%;
+        height: 100%;
+        background: linear-gradient(
+          90deg,
+          transparent,
+          rgba(255, 255, 255, 0.08),
+          transparent
+        );
+        transform: skewX(-20deg);
+        transition: left 0.4s;
+      }
+      .btn:hover::after {
+        left: 150%;
+      }
+      .btn:active {
+        transform: scale(0.97);
+      }
+
+      .btn-primary {
+        background: linear-gradient(135deg, var(--pd), #7c3aed);
+        color: #fff;
+        box-shadow: 0 4px 18px rgba(99, 102, 241, 0.35);
+        border: 1px solid rgba(129, 140, 248, 0.3);
+      }
+      .btn-primary:hover {
+        box-shadow: 0 6px 26px rgba(99, 102, 241, 0.5);
+        filter: brightness(1.08);
+      }
+
+      /* Footer */
+      .footer-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+      .shortcut-hint {
+        font-size: 10px;
+        color: var(--t3);
+        display: flex;
+        align-items: center;
+        gap: 4px;
+      }
+      kbd {
+        background: var(--s2);
+        border: 1px solid var(--b2);
+        border-radius: 4px;
+        padding: 1px 5px;
+        font-family: var(--mono);
+        font-size: 9px;
+        color: var(--t2);
+      }
+      .links {
+        display: flex;
+        gap: 14px;
+      }
+      .links a {
+        font-size: 10px;
+        color: var(--t3);
+        text-decoration: none;
+        transition: color 0.2s;
+        font-weight: 500;
+      }
+      .links a:hover {
+        color: var(--t2);
+      }
+
+      /* Health badge */
+      .health-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        padding: 3px 8px;
+        background: rgba(52, 211, 153, 0.08);
+        border: 1px solid rgba(52, 211, 153, 0.2);
+        border-radius: 100px;
+        font-family: var(--disp);
+        font-size: 8px;
+        font-weight: 700;
+        letter-spacing: 0.8px;
+        text-transform: uppercase;
+        color: var(--g);
+      }
+      .health-dot {
+        width: 5px;
+        height: 5px;
+        border-radius: 50%;
+        background: var(--g);
+        animation: pulse 2s ease-in-out infinite;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <div class="logo-area">
+        <div class="logo-mark">🎬</div>
+        <div class="logo-text">
+          <div class="logo-name">SyncWatch</div>
+          <div class="logo-sub">Watch together, in perfect sync</div>
+        </div>
+      </div>
+
+      <div class="status-bar">
+        <div class="dot" id="dot"></div>
+        <span id="status-text">Connecting…</span>
+        <div class="status-bar-right">
+          <div class="health-badge" id="server-badge" style="display: none">
+            <div class="health-dot"></div>
+            Server Live
+          </div>
+        </div>
+      </div>
+
+      <div class="room-info" id="room-info">
+        <div class="room-info-label">Active Room</div>
+        <div class="room-id" id="room-id"></div>
+        <div class="room-members" id="room-members"></div>
+      </div>
+
+      <button class="btn btn-primary" id="open-btn">Open Cinema Panel</button>
+
+      <div class="footer-row">
+        <div class="shortcut-hint">Toggle <kbd>Alt</kbd>+<kbd>W</kbd></div>
+        <div class="links">
+          <a href="#" id="refresh-btn">Reconnect</a>
+          <a href="https://github.com" target="_blank">GitHub</a>
+        </div>
       </div>
     </div>
-
-    <div class="status-pill">
-      <div class="dot" id="dot"></div>
-      <span id="status-text">Checking…</span>
-    </div>
-
-    <div class="room-info" id="room-info">
-      <div style="font-size:9px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#44445a;">Current Room</div>
-      <div class="room-id" id="room-id"></div>
-    </div>
-
-    <button class="btn btn-primary" id="open-btn">Open SyncWatch Panel</button>
-
-    <div class="shortcut-hint">Toggle with <kbd>Alt</kbd>+<kbd>W</kbd></div>
-
-    <div class="links">
-      <a href="#" id="refresh-btn">Reconnect</a>
-      <a href="https://github.com" target="_blank">GitHub</a>
-    </div>
-  </div>
-  <script src="popup.js"></script>
-</body>
+    <script src="popup.js"></script>
+  </body>
 </html>

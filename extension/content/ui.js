@@ -1,8 +1,22 @@
 /**
- * SyncWatch UI v3.0
- * Completely rewritten — collapsible panel, mini mode, edge handle,
- * live time display, peek strip, contextual toasts, emoji burst.
+ * SyncWatch UI v3.1
+ * - Draggable mini/collapsed mode
+ * - Share link button
+ * - Improved visual design
+ * - Extension context error safety
  */
+
+// Safe chrome.runtime wrapper
+function safeSendMsg(message, callback) {
+  try {
+    if (!chrome?.runtime?.id) return;
+    if (callback) chrome.runtime.sendMessage(message, callback);
+    else chrome.runtime.sendMessage(message);
+  } catch (e) {
+    console.warn('[SyncWatch UI] sendMessage error:', e.message);
+  }
+}
+
 class SyncWatchUI {
   constructor() {
     this.state = {
@@ -11,7 +25,7 @@ class SyncWatchUI {
       hostId:       null,
       myId:         null,
       participants: [],
-      view:         'join', // 'join' | 'room'
+      view:         'join',
       playing:      false,
     };
 
@@ -25,6 +39,9 @@ class SyncWatchUI {
     this.miniMode      = false;
     this.peekMsgs      = [];
 
+    // Draggable mini state
+    this._drag = { active: false, startY: 0, startTop: 0 };
+
     this._build();
     this._bindEvents();
     this._syncStatus();
@@ -35,7 +52,6 @@ class SyncWatchUI {
   // BUILD DOM
   // ══════════════════════════════════════════════════════
   _build() {
-    // Remove existing if any
     document.getElementById('sw-root')?.remove();
     document.getElementById('sw-launcher')?.remove();
     document.getElementById('sw-buf')?.remove();
@@ -44,20 +60,29 @@ class SyncWatchUI {
     document.getElementById('sw-manual')?.remove();
     document.getElementById('sw-peek')?.remove();
 
-    // ── Panel root ──────────────────────────────────────
     const root = document.createElement('div');
     root.id = 'sw-root';
     root.innerHTML = `
       <div id="sw-panel">
-        <div id="sw-edge-handle" title="Collapse"><div class="sw-handle-pip"></div><div class="sw-handle-pip"></div></div>
+        <div id="sw-edge-handle" title="Collapse">
+          <div class="sw-handle-pip"></div>
+          <div class="sw-handle-pip"></div>
+        </div>
 
         <!-- Mini rail (collapsed mode) -->
         <div id="sw-mini-rail">
+          <div class="sw-drag-handle" id="sw-drag-handle" title="Drag to move">
+            <div class="sw-drag-dots">
+              <span></span><span></span>
+              <span></span><span></span>
+              <span></span><span></span>
+            </div>
+          </div>
           <button class="sw-rail-btn" id="sw-rail-expand" title="Expand">◀</button>
           <button class="sw-rail-btn" id="sw-rail-chat" title="Chat">💬<span class="sw-rail-badge" id="sw-chat-badge"></span></button>
           <button class="sw-rail-btn" id="sw-rail-people" title="People">👥</button>
           <button class="sw-rail-btn" id="sw-rail-room" title="Room">⚙</button>
-          <button class="sw-rail-btn" id="sw-rail-leave" title="Leave room" style="color:var(--c-red)">✕</button>
+          <button class="sw-rail-btn" id="sw-rail-leave" title="Leave room" style="color:var(--red)">✕</button>
         </div>
 
         <!-- HEADER -->
@@ -66,11 +91,12 @@ class SyncWatchUI {
             <div class="sw-logo">
               <div class="sw-logo-mark">🎬</div>
               SyncWatch
+              <span class="sw-logo-version">v3.1</span>
             </div>
             <div class="sw-header-actions">
               <div class="sw-host-badge" id="sw-host-badge">HOST</div>
-              <button class="sw-icon-btn" id="sw-mini-btn" title="Collapse">◀</button>
-              <button class="sw-icon-btn" id="sw-close-btn" title="Hide panel">✕</button>
+              <button class="sw-icon-btn" id="sw-mini-btn" title="Collapse sidebar">◀</button>
+              <button class="sw-icon-btn" id="sw-close-btn" title="Hide">✕</button>
             </div>
           </div>
           <div class="sw-connection-row">
@@ -79,13 +105,11 @@ class SyncWatchUI {
               <span id="sw-conn-text">Offline</span>
             </div>
           </div>
-          <!-- Drift bar (non-host in room) -->
           <div class="sw-drift" id="sw-drift">
             <div class="sw-drift-lbl">Sync</div>
             <div class="sw-drift-track"><div class="sw-drift-fill" id="sw-drift-fill"></div></div>
             <div class="sw-drift-val" id="sw-drift-val">—</div>
           </div>
-          <!-- DRM notice -->
           <div class="sw-drm-notice" id="sw-drm"></div>
         </div>
 
@@ -104,19 +128,28 @@ class SyncWatchUI {
             <div class="sw-join-hero">
               <div class="sw-join-hero-icon">🎬</div>
               <h2>Watch Together</h2>
-              <p>Sync any video with friends.<br>Works on YouTube, Netflix, Prime &amp; more.</p>
+              <p>Real-time sync with friends.<br>YouTube, Netflix, Prime &amp; more.</p>
+            </div>
+            <div class="sw-feature-chips">
+              <div class="sw-chip"><div class="sw-chip-dot"></div>Real-time sync</div>
+              <div class="sw-chip"><div class="sw-chip-dot"></div>Host lock</div>
+              <div class="sw-chip"><div class="sw-chip-dot"></div>Live chat</div>
+              <div class="sw-chip"><div class="sw-chip-dot"></div>Auto-reconnect</div>
             </div>
             <div class="sw-field">
               <div class="sw-label">Room Code</div>
               <input id="sw-room-input" class="sw-input" type="text"
-                     placeholder="Enter room code…" spellcheck="false" autocomplete="off" maxlength="32" />
+                     placeholder="Enter room code…" spellcheck="false"
+                     autocomplete="off" maxlength="32" />
             </div>
             <div class="sw-btn-row">
-              <button class="sw-btn sw-btn-primary" id="sw-join-btn">⚡ Join</button>
+              <button class="sw-btn sw-btn-primary" id="sw-join-btn">⚡ Join Room</button>
               <button class="sw-btn sw-btn-secondary" id="sw-create-btn">✦ New Room</button>
             </div>
             <hr class="sw-divider">
-            <div class="sw-join-footer">Create a room → share the code → everyone opens the same video and joins.</div>
+            <div class="sw-join-footer">
+              Create a room → share the code → open the same video → sync starts instantly.
+            </div>
           </div>
 
           <!-- CHAT PANE -->
@@ -130,7 +163,8 @@ class SyncWatchUI {
             <div class="sw-typing-row" id="sw-typing"></div>
             <div class="sw-chat-footer">
               <div class="sw-chat-input-wrap">
-                <input id="sw-chat-input" class="sw-chat-input" placeholder="Message…" autocomplete="off" maxlength="500" />
+                <input id="sw-chat-input" class="sw-chat-input" placeholder="Message…"
+                       autocomplete="off" maxlength="500" />
                 <button class="sw-send-btn" id="sw-send-btn">➤</button>
               </div>
             </div>
@@ -142,14 +176,24 @@ class SyncWatchUI {
           </div>
 
           <!-- ROOM PANE -->
-          <div class="sw-pane" id="sw-pane-room" style="padding:14px;gap:10px;overflow-y:auto;scrollbar-width:thin;">
+          <div class="sw-pane" id="sw-pane-room" style="display:flex;padding:12px;gap:9px;overflow-y:auto;scrollbar-width:thin;flex-direction:column;">
 
             <div class="sw-room-id-block">
-              <div class="sw-room-id-label">Room ID — click to copy</div>
+              <div class="sw-room-id-label">Room ID</div>
               <div class="sw-room-id-row">
                 <div class="sw-room-id-val" id="sw-room-val">—</div>
                 <button class="sw-copy-btn" id="sw-copy-btn">Copy</button>
               </div>
+            </div>
+
+            <!-- Share link block -->
+            <div class="sw-share-block" id="sw-share-block">
+              <div class="sw-share-label">🔗 Invite Link</div>
+              <div class="sw-share-url-row">
+                <div class="sw-share-url" id="sw-share-url">—</div>
+                <button class="sw-share-copy-btn" id="sw-share-copy-btn">Copy</button>
+              </div>
+              <div class="sw-share-desc">Share this link — friends open it to auto-join your room on the same page.</div>
             </div>
 
             <!-- Live video clock -->
@@ -163,6 +207,7 @@ class SyncWatchUI {
               </div>
             </div>
 
+            <button class="sw-btn sw-btn-share" id="sw-share-btn">🔗 Get Invite Link</button>
             <button class="sw-btn sw-btn-ghost" id="sw-claim-btn">👑 Claim Host</button>
             <button class="sw-btn sw-btn-ghost" id="sw-release-btn" style="display:none">Release Host</button>
             <hr class="sw-divider">
@@ -181,7 +226,7 @@ class SyncWatchUI {
       <div class="sw-launcher-icon">🎬</div>
       <div class="sw-launcher-text">
         <span class="sw-launcher-title">SyncWatch</span>
-        <span class="sw-launcher-sub">Click to open</span>
+        <span class="sw-launcher-sub">Watch together</span>
       </div>
       <div class="sw-status-pip" id="sw-pip"></div>
     `;
@@ -203,7 +248,7 @@ class SyncWatchUI {
 
     const manual = document.createElement('div');
     manual.id = 'sw-manual';
-    manual.innerHTML = `<strong>Manual Sync</strong><span>Press <strong>Play</strong> together with your friends at the same time.</span>`;
+    manual.innerHTML = `<strong>Manual Sync</strong><span>Press <strong>Play</strong> together with your friends.</span>`;
     document.documentElement.appendChild(manual);
 
     const peek = document.createElement('div');
@@ -214,7 +259,6 @@ class SyncWatchUI {
     this.el = {
       root, launcher,
       panel:         root.querySelector('#sw-panel'),
-      header:        root.querySelector('#sw-header'),
       dot:           root.querySelector('#sw-dot'),
       connText:      root.querySelector('#sw-conn-text'),
       hostBadge:     root.querySelector('#sw-host-badge'),
@@ -244,10 +288,15 @@ class SyncWatchUI {
       claimBtn:      root.querySelector('#sw-claim-btn'),
       releaseBtn:    root.querySelector('#sw-release-btn'),
       leaveBtn:      root.querySelector('#sw-leave-btn'),
+      shareBtn:      root.querySelector('#sw-share-btn'),
+      shareBlock:    root.querySelector('#sw-share-block'),
+      shareUrl:      root.querySelector('#sw-share-url'),
+      shareCopyBtn:  root.querySelector('#sw-share-copy-btn'),
       edgeHandle:    root.querySelector('#sw-edge-handle'),
       miniBtn:       root.querySelector('#sw-mini-btn'),
       closeBtn:      root.querySelector('#sw-close-btn'),
       miniRail:      root.querySelector('#sw-mini-rail'),
+      dragHandle:    root.querySelector('#sw-drag-handle'),
       railExpand:    root.querySelector('#sw-rail-expand'),
       railChat:      root.querySelector('#sw-rail-chat'),
       railPeople:    root.querySelector('#sw-rail-people'),
@@ -265,10 +314,7 @@ class SyncWatchUI {
   _bindEvents() {
     const { el } = this;
 
-    // Launcher
     el.launcher.addEventListener('click', () => this.openPanel());
-
-    // Panel controls
     el.edgeHandle.addEventListener('click', () => this.closePanel());
     el.closeBtn.addEventListener('click',   () => this.closePanel());
     el.miniBtn.addEventListener('click',    () => this._toggleMini());
@@ -279,6 +325,9 @@ class SyncWatchUI {
     el.railPeople.addEventListener('click',  () => { this._exitMini(); this._switchTab('people'); });
     el.railRoom.addEventListener('click',    () => { this._exitMini(); this._switchTab('room'); });
     el.railLeave.addEventListener('click',   () => this._doLeave());
+
+    // Draggable mini panel
+    this._initDrag();
 
     // Tabs
     el.root.querySelectorAll('.sw-tab').forEach(t => {
@@ -300,12 +349,16 @@ class SyncWatchUI {
       this._sysMsg('⚡ Synced everyone to your position');
     });
     el.claimBtn.addEventListener('click', () => {
-      chrome.runtime.sendMessage({ type: 'to-server', data: { type: 'claim-host' } });
+      safeSendMsg({ type: 'to-server', data: { type: 'claim-host' } });
     });
     el.releaseBtn.addEventListener('click', () => {
-      chrome.runtime.sendMessage({ type: 'to-server', data: { type: 'release-host' } });
+      safeSendMsg({ type: 'to-server', data: { type: 'release-host' } });
     });
     el.leaveBtn.addEventListener('click', () => this._doLeave());
+
+    // Share link
+    el.shareBtn.addEventListener('click', () => this._toggleShareBlock());
+    el.shareCopyBtn.addEventListener('click', () => this._copyShareLink());
 
     // Chat
     el.chatInput.addEventListener('keydown', e => {
@@ -332,6 +385,55 @@ class SyncWatchUI {
   }
 
   // ══════════════════════════════════════════════════════
+  // DRAGGABLE MINI PANEL
+  // ══════════════════════════════════════════════════════
+  _initDrag() {
+    const { dragHandle, panel } = this.el;
+    if (!dragHandle) return;
+
+    const onMove = (clientY) => {
+      if (!this._drag.active) return;
+      const delta = clientY - this._drag.startY;
+      let newTop = this._drag.startTop + delta;
+      const maxTop = window.innerHeight - 200;
+      newTop = Math.max(0, Math.min(newTop, maxTop));
+      panel.style.top = newTop + 'px';
+      panel.style.bottom = 'auto';
+    };
+
+    dragHandle.addEventListener('mousedown', (e) => {
+      if (!this.miniMode) return;
+      e.preventDefault();
+      const rect = panel.getBoundingClientRect();
+      this._drag.active   = true;
+      this._drag.startY   = e.clientY;
+      this._drag.startTop = rect.top;
+      panel.classList.add('dragging');
+    });
+
+    dragHandle.addEventListener('touchstart', (e) => {
+      if (!this.miniMode) return;
+      const touch = e.touches[0];
+      const rect = panel.getBoundingClientRect();
+      this._drag.active   = true;
+      this._drag.startY   = touch.clientY;
+      this._drag.startTop = rect.top;
+    }, { passive: true });
+
+    document.addEventListener('mousemove', (e) => onMove(e.clientY));
+    document.addEventListener('touchmove', (e) => {
+      if (this._drag.active) onMove(e.touches[0].clientY);
+    }, { passive: true });
+
+    const stopDrag = () => {
+      this._drag.active = false;
+      panel.classList.remove('dragging');
+    };
+    document.addEventListener('mouseup', stopDrag);
+    document.addEventListener('touchend', stopDrag);
+  }
+
+  // ══════════════════════════════════════════════════════
   // PANEL OPEN/CLOSE
   // ══════════════════════════════════════════════════════
   openPanel() {
@@ -353,15 +455,25 @@ class SyncWatchUI {
   }
 
   _toggleMini() {
-    if (this.miniMode) { this._exitMini(); } else { this._enterMini(); }
+    if (this.miniMode) this._exitMini(); else this._enterMini();
   }
+
   _enterMini() {
     this.miniMode = true;
     this.el.root.classList.add('mini');
+    this.el.root.classList.add('open');
+    this.el.launcher.classList.add('hidden');
+    // Reset panel position
+    this.el.panel.style.top = '40%';
+    this.el.panel.style.bottom = 'auto';
   }
+
   _exitMini() {
     this.miniMode = false;
     this.el.root.classList.remove('mini');
+    this.el.root.classList.add('open');
+    this.el.panel.style.top = '';
+    this.el.panel.style.bottom = '';
   }
 
   _updateToastPos(open) {
@@ -442,7 +554,7 @@ class SyncWatchUI {
     if (data.hostId === this.state.myId) {
       this._toast(null, '👑 You are now the Host');
     } else if (data.identity) {
-      this._toast({ color: '#f0c060', initial: '👑' }, `${data.identity.name} is now Host`);
+      this._toast({ color: '#e8b84b', initial: '👑' }, `${data.identity.name} is now Host`);
     } else {
       this._sysMsg('Host released — anyone can claim');
     }
@@ -451,11 +563,9 @@ class SyncWatchUI {
   _onChatMsg(data) {
     this._onTypingStop(data);
     this._appendMsg(data.identity, data.message, false);
-    // Badge if panel closed or not on chat tab
     if (!this.panelOpen || (this.panelOpen && this.activeTab !== 'chat')) {
       this.el.chatBadge.classList.add('show');
     }
-    // Peek strip when collapsed
     if (this.miniMode) this._peekMsg(`${data.identity.name}: ${data.message}`);
   }
 
@@ -494,6 +604,38 @@ class SyncWatchUI {
   }
 
   // ══════════════════════════════════════════════════════
+  // SHARE LINK
+  // ══════════════════════════════════════════════════════
+  _buildShareLink() {
+    const room = this.state.roomId;
+    if (!room) return '';
+    const currentUrl = window.location.href.split('?')[0];
+    return `${currentUrl}?sw_room=${encodeURIComponent(room)}`;
+  }
+
+  _toggleShareBlock() {
+    const isVisible = this.el.shareBlock.classList.contains('visible');
+    if (isVisible) {
+      this.el.shareBlock.classList.remove('visible');
+      this.el.shareBtn.textContent = '🔗 Get Invite Link';
+    } else {
+      const link = this._buildShareLink();
+      this.el.shareUrl.textContent = link;
+      this.el.shareBlock.classList.add('visible');
+      this.el.shareBtn.textContent = '🔗 Hide Invite Link';
+    }
+  }
+
+  _copyShareLink() {
+    const link = this._buildShareLink();
+    navigator.clipboard.writeText(link).then(() => {
+      this.el.shareCopyBtn.textContent = 'Copied!';
+      setTimeout(() => { this.el.shareCopyBtn.textContent = 'Copy'; }, 2200);
+      this._toast(null, '🔗 Invite link copied to clipboard!');
+    });
+  }
+
+  // ══════════════════════════════════════════════════════
   // EMOJI BURST
   // ══════════════════════════════════════════════════════
   _burst(emoji, identity) {
@@ -507,7 +649,7 @@ class SyncWatchUI {
       const tx  = (Math.random() - 0.5) * 90;
       const dur = 1100 + Math.random() * 600;
       const delay = Math.random() * 250;
-      const size  = 20 + Math.random() * 18;
+      const size  = 20 + Math.random() * 16;
       el.style.cssText = `left:${x}%;bottom:18%;font-size:${size}px;animation-delay:${delay}ms;--dur:${dur}ms;--tx:${tx}px;--ty:${ty}px;`;
       this.el.burst.appendChild(el);
       setTimeout(() => el.remove(), delay + dur + 100);
@@ -521,9 +663,9 @@ class SyncWatchUI {
     const abs = Math.abs(deltaS);
     const pct = Math.min(abs / 5, 1);
     this.el.driftFill.style.width = `${pct * 100}%`;
-    const [color, val] = abs < 0.5 ? ['var(--c-green)', '✓'] :
-                         abs < 2   ? ['var(--c-amber)', `${abs.toFixed(1)}s`] :
-                                     ['var(--c-red)',   `${abs.toFixed(1)}s`];
+    const [color, val] = abs < 0.5 ? ['var(--green)', '✓'] :
+                         abs < 2   ? ['var(--amber)', `${abs.toFixed(1)}s`] :
+                                     ['var(--red)',   `${abs.toFixed(1)}s`];
     this.el.driftFill.style.background = color;
     this.el.driftVal.style.color = color;
     this.el.driftVal.textContent = val;
@@ -578,6 +720,8 @@ class SyncWatchUI {
     this._renderTyping();
     this.el.drift.classList.remove('visible');
     this.el.drm.style.display = 'none';
+    this.el.shareBlock.classList.remove('visible');
+    this.el.shareBtn.textContent = '🔗 Get Invite Link';
     this._switchToJoin();
     if (window.SyncOrchestrator) window.SyncOrchestrator.setRoom(null);
   }
@@ -586,9 +730,9 @@ class SyncWatchUI {
     const msg = this.el.chatInput.value.trim();
     if (!msg) return;
     const me = this.state.participants.find(p => p.id === this.state.myId);
-    const identity = me?.identity ?? { name: 'You', color: '#5b6ef5', initial: 'Y' };
+    const identity = me?.identity ?? { name: 'You', color: '#4f6ef7', initial: 'Y' };
     this._appendMsg(identity, msg, true);
-    chrome.runtime.sendMessage({ type: 'to-server', data: { type: 'chat-message', message: msg } });
+    safeSendMsg({ type: 'to-server', data: { type: 'chat-message', message: msg } });
     this.el.chatInput.value = '';
     this._stopTyping();
   }
@@ -605,7 +749,7 @@ class SyncWatchUI {
   // ══════════════════════════════════════════════════════
   _startTyping() {
     if (!this.typingTimeout) {
-      chrome.runtime.sendMessage({ type: 'to-server', data: { type: 'typing-start' } });
+      safeSendMsg({ type: 'to-server', data: { type: 'typing-start' } });
     }
     clearTimeout(this.typingTimeout);
     this.typingTimeout = setTimeout(() => this._stopTyping(), 2500);
@@ -614,7 +758,7 @@ class SyncWatchUI {
   _stopTyping() {
     clearTimeout(this.typingTimeout);
     this.typingTimeout = null;
-    chrome.runtime.sendMessage({ type: 'to-server', data: { type: 'typing-stop' } });
+    safeSendMsg({ type: 'to-server', data: { type: 'typing-stop' } });
   }
 
   _renderTyping() {
@@ -655,14 +799,20 @@ class SyncWatchUI {
     this.el.tabs.classList.add('visible');
     this.el.roomVal.textContent = (this.state.roomId ?? '').toUpperCase();
     this.el.videoBlock.style.display = 'block';
+    // Update share URL if visible
+    if (this.el.shareBlock.classList.contains('visible')) {
+      this.el.shareUrl.textContent = this._buildShareLink();
+    }
     this._switchTab(this.activeTab);
   }
 
   _showPane(id) {
     ['join','chat','people','room'].forEach(p => {
-      this.el[`pane${p.charAt(0).toUpperCase()+p.slice(1)}`]?.classList.remove('active');
+      const key = `pane${p.charAt(0).toUpperCase()+p.slice(1)}`;
+      if (this.el[key]) this.el[key].classList.remove('active');
     });
-    this.el[`pane${id.charAt(0).toUpperCase()+id.slice(1)}`]?.classList.add('active');
+    const key = `pane${id.charAt(0).toUpperCase()+id.slice(1)}`;
+    if (this.el[key]) this.el[key].classList.add('active');
   }
 
   _switchTab(tab) {
@@ -681,7 +831,7 @@ class SyncWatchUI {
       const div = document.createElement('div');
       div.className = 'sw-person';
       div.innerHTML = `
-        <div class="sw-person-av" style="background:${p.identity.color}20;border:1.5px solid ${p.identity.color}40;color:${p.identity.color}">
+        <div class="sw-person-av" style="background:${p.identity.color}18;border:1.5px solid ${p.identity.color}35;color:${p.identity.color}">
           ${p.identity.initial}
         </div>
         <div class="sw-person-info">
@@ -689,7 +839,7 @@ class SyncWatchUI {
             ${this._esc(p.identity.name)}
             ${isMe ? '<span class="sw-you-tag">you</span>' : ''}
           </div>
-          <div class="sw-person-role">${isHost ? '👑 Host' : '• Viewer'}</div>
+          <div class="sw-person-role">${isHost ? '👑 Host' : '· Viewer'}</div>
         </div>
       `;
       this.el.people.appendChild(div);
@@ -703,8 +853,6 @@ class SyncWatchUI {
     this.el.syncNowBtn.style.display  = isHost ? 'block'        : 'none';
     this.el.claimBtn.style.display    = (!isHost && noHost) ? 'block' : 'none';
     this.el.releaseBtn.style.display  = isHost ? 'block' : 'none';
-
-    // Drift bar: show if non-host in room
     const showDrift = !!this.state.roomId && !!this.state.hostId && !isHost;
     this.el.drift.classList.toggle('visible', showDrift);
   }
@@ -716,7 +864,7 @@ class SyncWatchUI {
     const div = document.createElement('div');
     div.className = `sw-msg${isOwn ? ' own' : ''}`;
     div.innerHTML = `
-      <div class="sw-avatar" style="background:${identity.color}20;border:1.5px solid ${identity.color}40;color:${identity.color}">${identity.initial}</div>
+      <div class="sw-avatar" style="background:${identity.color}18;border:1.5px solid ${identity.color}35;color:${identity.color}">${identity.initial}</div>
       <div class="sw-msg-body">
         <div class="sw-msg-name" style="color:${identity.color}">${this._esc(identity.name)}</div>
         <div class="sw-bubble">${this._esc(text)}</div>
@@ -741,7 +889,7 @@ class SyncWatchUI {
     const div = document.createElement('div');
     div.className = 'sw-toast';
     if (identity) {
-      div.innerHTML = `<div class="sw-toast-av" style="background:${identity.color}30;color:${identity.color}">${identity.initial}</div>${this._esc(text)}`;
+      div.innerHTML = `<div class="sw-toast-av" style="background:${identity.color}28;color:${identity.color}">${identity.initial}</div>${this._esc(text)}`;
     } else {
       div.textContent = text;
     }
@@ -755,13 +903,11 @@ class SyncWatchUI {
   _peekMsg(text) {
     const div = document.createElement('div');
     div.className = 'sw-peek-msg';
-    div.textContent = text.slice(0, 36) + (text.length > 36 ? '…' : '');
+    div.textContent = text.slice(0, 34) + (text.length > 34 ? '…' : '');
     this.el.peek.appendChild(div);
     this.el.peek.classList.add('show');
     this.peekMsgs.push(div);
-    if (this.peekMsgs.length > 3) {
-      this.peekMsgs.shift().remove();
-    }
+    if (this.peekMsgs.length > 3) this.peekMsgs.shift().remove();
     clearTimeout(this._peekTimeout);
     this._peekTimeout = setTimeout(() => { this.el.peek.classList.remove('show'); }, 3500);
   }
@@ -776,12 +922,14 @@ class SyncWatchUI {
   }
 
   _syncStatus() {
-    chrome.runtime.sendMessage({ type: 'get-status' }, (res) => {
-      if (chrome.runtime.lastError) return;
-      if (res?.connected) this.state.connected = true;
-      if (res?.room)      this.state.roomId    = res.room;
-      if (res?.myId)      this.state.myId      = res.myId;
-      this._renderAll();
+    safeSendMsg({ type: 'get-status' }, (res) => {
+      try {
+        if (chrome.runtime.lastError) return;
+        if (res?.connected) this.state.connected = true;
+        if (res?.room)      this.state.roomId    = res.room;
+        if (res?.myId)      this.state.myId      = res.myId;
+        this._renderAll();
+      } catch(e) {}
     });
   }
 }
