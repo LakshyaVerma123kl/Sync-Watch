@@ -1,0 +1,17 @@
+{
+  "name": "new-folder-(6)",
+  "version": "1.0.0",
+  "description": "SyncWatch is a Chrome extension that allows multiple users to watch video content together in sync across the internet. It currently supports generic HTML5 videos and YouTube.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "archiver": "^7.0.1",
+    "jimp": "^1.6.1"
+  }
+}

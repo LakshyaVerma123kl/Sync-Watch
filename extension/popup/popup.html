@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+  <style>
+    body {
+      width: 300px;
+      padding: 24px;
+      font-family: 'Inter', sans-serif;
+      background: #111;
+      color: #fff;
+      text-align: center;
+      margin: 0;
+    }
+    h2 { margin-top: 0; font-size: 20px; font-weight: 700; margin-bottom: 8px; }
+    p { color: #888; font-size: 13px; line-height: 1.5; margin-bottom: 24px; }
+    .icon { font-size: 48px; margin-bottom: 16px; display: inline-block; }
+    
+    .btn {
+      width: 100%;
+      background: linear-gradient(135deg, #5E6AD2, #404BBA);
+      color: white;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 12px;
+      padding: 14px;
+      font-weight: 600;
+      font-size: 14px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      box-shadow: 0 4px 12px rgba(94, 106, 210, 0.3);
+      outline: none;
+    }
+    .btn:hover { transform: translateY(-1px); box-shadow: 0 6px 16px rgba(94, 106, 210, 0.4); }
+    .btn:active { transform: translateY(1px); }
+  </style>
+</head>
+<body>
+  <div class="icon">🍿</div>
+  <h2>SyncWatch</h2>
+  <p>Ready to watch together? Open the sidebar on any video to start a watch party instantly.</p>
+  <button class="btn" id="open-sidebar">Open Sidebar</button>
+  
+  <script src="popup.js"></script>
+</body>
+</html>

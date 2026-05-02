@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>SyncWatch Test Harness</title>
+  <style>
+    body { font-family: sans-serif; background: #222; color: white; padding: 20px; }
+    video { width: 600px; max-width: 100%; border: 2px solid #555; border-radius: 8px; }
+  </style>
+  <link rel="stylesheet" href="../extension/content/styles.css">
+</head>
+<body>
+  <h2>SyncWatch Test Window</h2>
+  <!-- Sample open source video -->
+  <video id="test-video" controls src="https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4"></video>
+  
+  <p>Use the SyncWatch overlay below to test connectivity and sync.</p>
+
+  <!-- Load mock extension background script logic -->
+  <script src="/test-harness/mock-extension.js"></script>
+
+  <!-- Load extension content scripts -->
+  <script src="/extension/content/adapters/base.js"></script>
+  <script src="/extension/content/adapters/generic.js"></script>
+  <script src="/extension/content/ui.js"></script>
+  <script src="/extension/content/content.js"></script>
+</body>
+</html>
