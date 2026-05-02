@@ -1,19 +1,21 @@
-# 🎬 SyncWatch v2
+# 🎬 SyncWatch v3.1
 
 > Watch any video in perfect sync with friends — anywhere on the web.
 
-Real-time play/pause/seek synchronization via WebSockets, a premium dark cinema UI, host lock system, live chat with typing indicators, and smart drift correction.
+Real-time play/pause/seek synchronization via WebSockets, a premium Obsidian Cinema UI, host lock system, live chat with typing indicators, smart drift correction, and draggable mini mode.
 
 ---
 
-## ✨ What's new in v2
+## ✨ What's new in v3.1
 
 | Area           | Improvement                                                                     |
 | -------------- | ------------------------------------------------------------------------------- |
+| **UI/UX**      | Obsidian Cinema UI with Outfit & DM Mono fonts; draggable mini/collapsed mode   |
+| **Features**   | 1-click share invite links; interactive emoji bursts; real-time server health   |
+| **Resilience** | Complete `chrome.runtime` try/catch safety for extension context invalidation   |
 | **Sync**       | Elapsed-time correction when joining mid-play; periodic drift check every 5 s   |
 | **Server**     | `release-host` command; `/room/:id/info` REST endpoint; input sanitisation      |
 | **Background** | Exponential reconnect backoff; session state survives service worker restarts   |
-| **UI**         | Full state-machine rewrite — no more tab display bugs or typing indicator leaks |
 | **Adapters**   | Netflix/Prime/Disney stub (DRM manual-sync mode); YouTube SPA navigation fix    |
 | **Build**      | Validates `wss://` URL; checks archiver dependency before starting              |
 
@@ -80,9 +82,9 @@ syncwatch/
 │   │   │   ├── generic.js Largest-visible-video heuristic
 │   │   │   ├── youtube.js YT SPA navigation events
 │   │   │   └── netflix.js DRM-site stub (manual sync mode)
-│   │   ├── ui.js          State-machine sidebar UI
-│   │   ├── content.js     Orchestrator — wires adapter ↔ UI ↔ background
-│   │   └── styles.css     Cinema dark theme (Syne + DM Sans)
+│   │   ├── ui.js          State-machine sidebar UI with draggable mini-mode
+│   │   ├── content.js     Orchestrator — wires adapter ↔ UI ↔ background (context-safe)
+│   │   └── styles.css     Obsidian Cinema UI (Outfit + DM Mono)
 │   └── popup/             Extension toolbar popup
 ├── build.js               Production packager
 └── render.yaml            One-click Render deploy
@@ -93,6 +95,8 @@ syncwatch/
 ## 🔒 Features
 
 - **Host lock** — claim host to be the only one who can control playback
+- **Share Links** — generate and copy an invite link to auto-join a room
+- **Draggable Mini Mode** — collapse the sidebar into a movable floating widget
 - **Drift correction** — soft seek if you're >2 s off; hard sync on join
 - **Buffering sync** — pause everyone when one person is buffering
 - **DRM graceful degradation** — Netflix/Prime show a "press play together" banner
